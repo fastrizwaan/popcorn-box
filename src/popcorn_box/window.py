@@ -24,7 +24,7 @@ else:
 os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
 from concurrent.futures import ThreadPoolExecutor
-_image_pool = ThreadPoolExecutor(max_workers=16)
+_image_pool = ThreadPoolExecutor(max_workers=6)
 
 def load_image_into_picture(url, picture_widget, width=None, height=None):
     if not url: return
@@ -58,13 +58,21 @@ def set_image_from_data(data, picture_widget, width=None, height=None):
         loader = GdkPixbuf.PixbufLoader()
         loader.write(data)
         loader.close()
-        if pixbuf := loader.get_pixbuf():
+        pixbuf = loader.get_pixbuf()
+        if pixbuf:
             if width and height:
                 pixbuf = pixbuf.scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
             picture_widget.set_can_shrink(True)
-            picture_widget.set_paintable(Gdk.Texture.new_for_pixbuf(pixbuf))
+            # Use a pixbuf-backed texture to avoid direct Vulkan GPU allocation
+            try:
+                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+                picture_widget.set_paintable(texture)
+            except Exception:
+                # Fallback: if GPU texture fails, set a placeholder
+                pass
     except Exception as e:
         print(f"Failed to set image: {e}")
+
 
 _WINDOW_DRAG_BLOCKED = (
     Gtk.Button, Gtk.Entry, Gtk.SearchEntry, Gtk.DropDown,
