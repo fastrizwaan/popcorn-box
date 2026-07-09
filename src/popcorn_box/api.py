@@ -8,6 +8,8 @@ import logging
 from . import database
 import concurrent.futures
 
+DEFAULT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
+
 if os.environ.get("FLATPAK_ID"):
     cache_dir_base = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
     CACHE_DIR = os.path.join(cache_dir_base, 'popcorn-box', 'api')
@@ -20,7 +22,7 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
     cache_file = os.path.join(CACHE_DIR, url_hash)
     
     if headers is None:
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        headers = DEFAULT_HEADERS
     
     # Check if cache exists and is fresh
     if os.path.exists(cache_file):
@@ -255,7 +257,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             url = f"{base_url}stream/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
             
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
             with urllib.request.urlopen(req, timeout=8) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 return addon.get("name", "Unknown"), data.get("streams", [])
@@ -372,7 +374,7 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
         url = f"https://opensubtitles-v3.strem.io/subtitles/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
         
     try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode('utf-8'))
             subs = data.get("subtitles", [])
@@ -400,7 +402,7 @@ def download_subtitle(sub_url, filename):
     file_path = os.path.join(download_dir, filename)
     
     try:
-        req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(sub_url, headers=DEFAULT_HEADERS)
         with urllib.request.urlopen(req) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
@@ -418,7 +420,7 @@ def download_subtitle_to_path(sub_url, file_path):
     os.makedirs(dir_name, exist_ok=True)
     
     try:
-        req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
+        req = urllib.request.Request(sub_url, headers=DEFAULT_HEADERS)
         with urllib.request.urlopen(req) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
