@@ -23,6 +23,7 @@ DEFAULT_ADDONS = [
         "description": "Provides movies and series catalogs from IMDb.",
         "manifest_url": "https://v3-cinemeta.strem.io/manifest.json",
         "enabled": True,
+        "id_prefixes": ["tt"],
         "catalogs": [
             {"type": "movie", "id": "top", "name": "Popular"},
             {"type": "movie", "id": "imdbRating", "name": "IMDb Rating"},
@@ -37,6 +38,7 @@ DEFAULT_ADDONS = [
         "description": "Catalogs for Movies and Series from TMDB. Fast updates.",
         "manifest_url": "https://tmdb.strem.fun/manifest.json",
         "enabled": True,
+        "id_prefixes": ["tmdb", "tt"],
         "catalogs": [
             {"type": "movie", "id": "tmdb.trending", "name": "Trending"},
             {"type": "movie", "id": "tmdb.popular", "name": "Popular"},
@@ -76,9 +78,12 @@ def _read_db():
                     for a in data["addons"]:
                         if a.get("id") == default_addon["id"]:
                             found = True
-                            # Migrate missing catalogs to existing addons
+                            # Migrate missing catalogs/id_prefixes to existing addons
                             if "catalogs" in default_addon and "catalogs" not in a:
                                 a["catalogs"] = default_addon["catalogs"]
+                                migrated = True
+                            if "id_prefixes" in default_addon and "id_prefixes" not in a:
+                                a["id_prefixes"] = default_addon["id_prefixes"]
                                 migrated = True
                             break
                     if not found:

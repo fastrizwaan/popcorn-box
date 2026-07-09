@@ -140,6 +140,11 @@ def fetch_movie_details(imdb_id, media_type="movie"):
         m_url = addon.get("manifest_url", "")
         if not m_url or m_url.startswith("builtin:"): continue
         
+        # Check if the addon supports this ID prefix
+        prefixes = addon.get("id_prefixes", [])
+        if prefixes and not any(imdb_id.startswith(p) for p in prefixes):
+            continue
+            
         base_url = m_url.rsplit("manifest.json", 1)[0]
         if not base_url.endswith("/"): base_url += "/"
         
@@ -230,6 +235,11 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
     
     def fetch_from_addon(addon):
+        # Check if the addon supports this ID prefix
+        prefixes = addon.get("id_prefixes", [])
+        if prefixes and not any(imdb_id.startswith(p) for p in prefixes):
+            return addon.get("name", "Unknown"), []
+            
         manifest_url = addon.get("manifest_url", "")
         if "manifest.json" in manifest_url:
             base_url = manifest_url.rsplit('manifest.json', 1)[0]
@@ -351,7 +361,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     return valid_streams
 
 def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
-    if not imdb_id:
+    if not imdb_id or not imdb_id.startswith("tt"):
         return []
         
     actual_media = "series" if media_type in ["series", "anime"] else media_type

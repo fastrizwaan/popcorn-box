@@ -2554,6 +2554,16 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 if not isinstance(manifest_data, dict) or "name" not in manifest_data:
                     raise ValueError("Invalid manifest format. Must contain a 'name' field.")
                 
+                prefixes = set()
+                if "idPrefixes" in manifest_data:
+                    for p in manifest_data["idPrefixes"]:
+                        prefixes.add(str(p))
+                for res in manifest_data.get("resources", []):
+                    if isinstance(res, dict):
+                        if res.get("name") in ["meta", "stream", "subtitles"]:
+                            for p in res.get("idPrefixes", []):
+                                prefixes.add(str(p))
+                
                 addon_id = manifest_data.get("id", url)
                 addon = {
                     "id": addon_id,
@@ -2563,6 +2573,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     "icon": manifest_data.get("icon"),
                     "manifest_url": url,
                     "enabled": True,
+                    "id_prefixes": list(prefixes),
                     "catalogs": manifest_data.get("catalogs", [])
                 }
                 
