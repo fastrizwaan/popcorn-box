@@ -2,6 +2,7 @@ import sys
 import threading
 import gi
 import json
+import logging
 from . import database
 
 gi.require_version('Gtk', '4.0')
@@ -46,7 +47,7 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
                 
             GLib.idle_add(set_image_from_data, data, picture_widget, width, height)
         except Exception as e:
-            print(f"Failed to load image: {e}")
+            logging.debug(f"Failed to load image: {e}")
     threading.Thread(target=fetch_image, daemon=True).start()
 
 def set_image_from_data(data, picture_widget, width=None, height=None):
@@ -60,7 +61,7 @@ def set_image_from_data(data, picture_widget, width=None, height=None):
             picture_widget.set_can_shrink(True)
             picture_widget.set_paintable(Gdk.Texture.new_for_pixbuf(pixbuf))
     except Exception as e:
-        print(f"Failed to set image: {e}")
+        logging.debug(f"Failed to set image: {e}")
 
 _WINDOW_DRAG_BLOCKED = (
     Gtk.Button, Gtk.Entry, Gtk.SearchEntry, Gtk.DropDown,
@@ -307,7 +308,7 @@ class MovieDetailsPage(Gtk.Overlay):
                 clipboard = Gdk.Display.get_default().get_clipboard()
                 clipboard.set(details.get("title", ""))
             except Exception as e:
-                print(f"Failed to copy to clipboard: {e}")
+                logging.warning(f"Failed to copy to clipboard: {e}")
         copy_btn.connect("clicked", on_copy_clicked)
         title_hbox.append(copy_btn)
         
@@ -579,7 +580,7 @@ class MovieDetailsPage(Gtk.Overlay):
                     eng_episode = getattr(eng, 'episode', None)
                     sel_season = getattr(self, 'selected_season', None)
                     sel_episode = getattr(self, 'selected_episode', None)
-                    print(f"[DEBUG_CHECK] eng.item_id={eng.item_id} (target={item_id}) eng.is_alive()={is_alive} season={eng_season} (target={sel_season}) ep={eng_episode} (target={sel_episode})")
+                    logging.debug(f"[DEBUG_CHECK] eng.item_id={eng.item_id} (target={item_id}) eng.is_alive()={is_alive} season={eng_season} (target={sel_season}) ep={eng_episode} (target={sel_episode})")
                     if is_alive and eng.item_id == item_id:
                         if self.media_type in ["series", "anime"]:
                             # Match season and episode too!
@@ -1016,7 +1017,7 @@ class MovieDetailsPage(Gtk.Overlay):
                                         pass
                                 GLib.idle_add(clear_fetching)
                         except Exception as e:
-                            print(f"Failed to fetch next episode torrents: {e}")
+                            logging.debug(f"Failed to fetch next episode torrents: {e}")
                             def clear_fetching():
                                 try:
                                     root = self.get_root()
@@ -2437,7 +2438,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
     def show_movie_details(self, movie):
         imdb_id = movie.get("imdb_id") or movie.get("id")
         media_type = movie.get("type", "movie")
-        print(f"{media_type}: {imdb_id}")
+        logging.debug(f"{media_type}: {imdb_id}")
 
         if movie.get("medium_cover_image"):
             database.add_history({

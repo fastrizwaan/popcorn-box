@@ -46,7 +46,7 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
                 f.write(data_str)
             return data
     except Exception as e:
-        print(f"Error fetching items from {url}: {e}")
+        logging.debug(f"Error fetching items from {url}: {e}")
         # Return stale cache if network fails
         if os.path.exists(cache_file):
             try:
@@ -250,7 +250,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
                 data = json.loads(response.read().decode('utf-8'))
                 return addon.get("name", "Unknown"), data.get("streams", [])
         except Exception as e:
-            print(f"Error fetching from addon {addon.get('name')}: {e}")
+            logging.debug(f"Error fetching from addon {addon.get('name')}: {e}")
             return addon.get("name", "Unknown"), []
             
     all_streams = []
@@ -268,9 +268,9 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
                                 s["addon_name"] = addon_name
                                 all_streams.append(s)
                     except Exception as e:
-                        print(f"Error in addon future: {e}")
+                        logging.debug(f"Error in addon future: {e}")
             except concurrent.futures.TimeoutError:
-                print("Timeout fetching streams from some addons")
+                logging.debug("Timeout fetching streams from some addons")
             
     if not all_streams:
         return []
@@ -370,7 +370,7 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
             eng_subs = [s for s in subs if s.get("lang", "").lower() in ["eng", "en", "english"]]
             return eng_subs
     except Exception as e:
-        print(f"Error fetching subtitles: {e}")
+        logging.debug(f"Error fetching subtitles: {e}")
         
     return []
 
@@ -396,7 +396,7 @@ def download_subtitle(sub_url, filename):
                 f.write(response.read())
         return file_path
     except Exception as e:
-        print(f"Error downloading subtitle: {e}")
+        logging.debug(f"Error downloading subtitle: {e}")
         return None
 
 def download_subtitle_to_path(sub_url, file_path):
@@ -414,7 +414,7 @@ def download_subtitle_to_path(sub_url, file_path):
                 f.write(response.read())
         return file_path
     except Exception as e:
-        print(f"Error downloading subtitle: {e}")
+        logging.debug(f"Error downloading subtitle: {e}")
         return None
 
 def build_magnet(hash_string, title):
