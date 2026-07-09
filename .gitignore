@@ -1,0 +1,11 @@
+.flatpak-builder/
+build-dir/
+_flatpak_build/
+__pycache__/
+*.pyc
+bin/
+native-popcorn.tar.gz
+*.tar.gz
+test*
+*.log
+*.flatpak
