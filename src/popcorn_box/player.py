@@ -179,6 +179,22 @@ def play_magnet(magnet_link, player="mpv", progress_callback=None, file_index=No
     from .libtorrent_stream import info_hash_from_magnet
     from . import database
     
+    if magnet_link and (magnet_link.startswith("http://") or magnet_link.startswith("https://")):
+        stop_player()
+        def launch_web():
+            if progress_callback:
+                GLib.idle_add(progress_callback, {"status": "Loading web stream..."})
+                sub_file = None
+                import os, glob
+                sub_dir = "/var/tmp/popcorn-box/None"
+                if os.path.exists(sub_dir):
+                    srts = glob.glob(os.path.join(glob.escape(sub_dir), '**', '*.srt'), recursive=True)
+                    if srts:
+                        sub_file = srts[0]
+                GLib.idle_add(progress_callback, {"status": "Playing!", "url": magnet_link, "sub_file": sub_file})
+        threading.Thread(target=launch_web, daemon=True).start()
+        return None
+        
     info_hash = info_hash_from_magnet(magnet_link)
     if not info_hash: return
     
