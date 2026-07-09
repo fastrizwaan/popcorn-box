@@ -3,7 +3,7 @@ import os
 import gi
 import logging
 
-logging.basicConfig(level=logging.WARNING, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(levelname)s: %(message)s')
 
 # Suppress noisy Vulkan swapchain resize warnings (harmless artefacts)
 os.environ.setdefault("GDK_DEBUG", "")

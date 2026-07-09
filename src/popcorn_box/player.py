@@ -180,6 +180,7 @@ def play_magnet(magnet_link, player="mpv", progress_callback=None, file_index=No
     from . import database
     
     if magnet_link and (magnet_link.startswith("http://") or magnet_link.startswith("https://")):
+        print(f"[Player] Starting HTTP/web stream: {magnet_link}")
         stop_player()
         def launch_web():
             if progress_callback:
@@ -197,6 +198,7 @@ def play_magnet(magnet_link, player="mpv", progress_callback=None, file_index=No
         
     info_hash = info_hash_from_magnet(magnet_link)
     if not info_hash: return
+    print(f"[Player] Starting Torrent stream: {magnet_link} (info_hash: {info_hash})")
     
     def launch_player_only(engine):
         if progress_callback: GLib.idle_add(progress_callback, {"status": "Launching media player..."})
