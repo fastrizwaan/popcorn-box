@@ -7,6 +7,10 @@ import hashlib
 import logging
 from . import database
 import concurrent.futures
+import threading
+
+# Global semaphore: cap ALL outbound HTTP connections across the entire app
+_net_sema = threading.Semaphore(8)
 
 if os.environ.get("FLATPAK_ID"):
     cache_dir_base = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
@@ -37,14 +41,15 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
         
     # Fetch from network
     try:
-        req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req) as response:
-            data_str = response.read().decode('utf-8')
-            data = json.loads(data_str)
-            # Save to cache
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                f.write(data_str)
-            return data
+        with _net_sema:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data_str = response.read().decode('utf-8')
+        data = json.loads(data_str)
+        # Save to cache
+        with open(cache_file, 'w', encoding='utf-8') as f:
+            f.write(data_str)
+        return data
     except Exception as e:
         print(f"Error fetching items from {url}: {e}")
         # Return stale cache if network fails
@@ -244,10 +249,11 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             url = f"{base_url}stream/movie/{imdb_id}.json"
             
         try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=8) as response:
-                data = json.loads(response.read().decode('utf-8'))
-                return addon.get("name", "Unknown"), data.get("streams", [])
+            with _net_sema:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=8) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+            return addon.get("name", "Unknown"), data.get("streams", [])
         except Exception as e:
             print(f"Error fetching from addon {addon.get('name')}: {e}")
             return addon.get("name", "Unknown"), []

@@ -591,7 +591,6 @@ class MovieDetailsPage(Gtk.Overlay):
                     eng_episode = getattr(eng, 'episode', None)
                     sel_season = getattr(self, 'selected_season', None)
                     sel_episode = getattr(self, 'selected_episode', None)
-                    print(f"[DEBUG_CHECK] eng.item_id={eng.item_id} (target={item_id}) eng.is_alive()={is_alive} season={eng_season} (target={sel_season}) ep={eng_episode} (target={sel_episode})")
                     if is_alive and eng.item_id == item_id:
                         if self.media_type in ["series", "anime"]:
                             # Match season and episode too!
