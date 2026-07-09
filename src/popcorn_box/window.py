@@ -2354,7 +2354,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 copy_btn.set_css_classes(["flat"])
                 copy_btn.set_valign(Gtk.Align.CENTER)
                 copy_btn.set_tooltip_text("Copy Addon Metadata")
-                copy_btn.connect("clicked", lambda b, a=addon: Gdk.Display.get_default().get_clipboard().set(json.dumps(a, indent=4)))
+                copy_btn.connect("clicked", lambda b, a=addon: Gdk.Display.get_default().get_clipboard().set(a.get("manifest_url", "")))
                 row.append(copy_btn)
                 
                 delete_btn = Gtk.Button()

@@ -143,7 +143,7 @@ def fetch_movie_details(imdb_id, media_type="movie"):
         base_url = m_url.rsplit("manifest.json", 1)[0]
         if not base_url.endswith("/"): base_url += "/"
         
-        meta_url = f"{base_url}meta/{c_type}/{imdb_id}.json"
+        meta_url = f"{base_url}meta/{c_type}/{urllib.parse.quote(imdb_id, safe='')}.json"
         data = _get_cached_request(meta_url, max_age_hours=168)
         
         if data and data.get("meta"):
@@ -239,9 +239,10 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             base_url += '/'
             
         if actual_media == "series" and season is not None and episode is not None:
-            url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
+            stream_id = f"{imdb_id}:{season}:{episode}"
+            url = f"{base_url}stream/series/{urllib.parse.quote(stream_id, safe='')}.json"
         else:
-            url = f"{base_url}stream/movie/{imdb_id}.json"
+            url = f"{base_url}stream/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
             
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
@@ -355,9 +356,10 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
         
     actual_media = "series" if media_type in ["series", "anime"] else media_type
     if actual_media == "series" and season is not None and episode is not None:
-        url = f"https://opensubtitles-v3.strem.io/subtitles/series/{imdb_id}:{season}:{episode}.json"
+        sub_id = f"{imdb_id}:{season}:{episode}"
+        url = f"https://opensubtitles-v3.strem.io/subtitles/series/{urllib.parse.quote(sub_id, safe='')}.json"
     else:
-        url = f"https://opensubtitles-v3.strem.io/subtitles/movie/{imdb_id}.json"
+        url = f"https://opensubtitles-v3.strem.io/subtitles/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
         
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
