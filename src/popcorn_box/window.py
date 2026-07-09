@@ -2,7 +2,6 @@ import sys
 import threading
 import gi
 import json
-import logging
 from . import database
 
 gi.require_version('Gtk', '4.0')
@@ -24,6 +23,9 @@ else:
     IMAGE_CACHE_DIR = os.path.expanduser('~/.var/app/io.github.fastrizwaan.PopcornBox/cache/popcorn-box/images')
 os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
+from concurrent.futures import ThreadPoolExecutor
+_image_pool = ThreadPoolExecutor(max_workers=16)
+
 def load_image_into_picture(url, picture_widget, width=None, height=None):
     if not url: return
     
@@ -39,7 +41,7 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
                 return
                 
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req) as response:
+            with urllib.request.urlopen(req, timeout=10) as response:
                 data = response.read()
                 
             with open(cache_file, 'wb') as f:
@@ -47,8 +49,9 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
                 
             GLib.idle_add(set_image_from_data, data, picture_widget, width, height)
         except Exception as e:
-            logging.debug(f"Failed to load image: {e}")
-    threading.Thread(target=fetch_image, daemon=True).start()
+            print(f"Failed to load image: {e}")
+    
+    _image_pool.submit(fetch_image)
 
 def set_image_from_data(data, picture_widget, width=None, height=None):
     try:
@@ -61,7 +64,7 @@ def set_image_from_data(data, picture_widget, width=None, height=None):
             picture_widget.set_can_shrink(True)
             picture_widget.set_paintable(Gdk.Texture.new_for_pixbuf(pixbuf))
     except Exception as e:
-        logging.debug(f"Failed to set image: {e}")
+        print(f"Failed to set image: {e}")
 
 _WINDOW_DRAG_BLOCKED = (
     Gtk.Button, Gtk.Entry, Gtk.SearchEntry, Gtk.DropDown,
@@ -308,7 +311,7 @@ class MovieDetailsPage(Gtk.Overlay):
                 clipboard = Gdk.Display.get_default().get_clipboard()
                 clipboard.set(details.get("title", ""))
             except Exception as e:
-                logging.warning(f"Failed to copy to clipboard: {e}")
+                print(f"Failed to copy to clipboard: {e}")
         copy_btn.connect("clicked", on_copy_clicked)
         title_hbox.append(copy_btn)
         
@@ -580,7 +583,7 @@ class MovieDetailsPage(Gtk.Overlay):
                     eng_episode = getattr(eng, 'episode', None)
                     sel_season = getattr(self, 'selected_season', None)
                     sel_episode = getattr(self, 'selected_episode', None)
-                    logging.debug(f"[DEBUG_CHECK] eng.item_id={eng.item_id} (target={item_id}) eng.is_alive()={is_alive} season={eng_season} (target={sel_season}) ep={eng_episode} (target={sel_episode})")
+                    print(f"[DEBUG_CHECK] eng.item_id={eng.item_id} (target={item_id}) eng.is_alive()={is_alive} season={eng_season} (target={sel_season}) ep={eng_episode} (target={sel_episode})")
                     if is_alive and eng.item_id == item_id:
                         if self.media_type in ["series", "anime"]:
                             # Match season and episode too!
@@ -1017,7 +1020,7 @@ class MovieDetailsPage(Gtk.Overlay):
                                         pass
                                 GLib.idle_add(clear_fetching)
                         except Exception as e:
-                            logging.debug(f"Failed to fetch next episode torrents: {e}")
+                            print(f"Failed to fetch next episode torrents: {e}")
                             def clear_fetching():
                                 try:
                                     root = self.get_root()
@@ -2438,7 +2441,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
     def show_movie_details(self, movie):
         imdb_id = movie.get("imdb_id") or movie.get("id")
         media_type = movie.get("type", "movie")
-        logging.debug(f"{media_type}: {imdb_id}")
+        print(f"{media_type}: {imdb_id}")
 
         if movie.get("medium_cover_image"):
             database.add_history({
@@ -2554,16 +2557,6 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 if not isinstance(manifest_data, dict) or "name" not in manifest_data:
                     raise ValueError("Invalid manifest format. Must contain a 'name' field.")
                 
-                prefixes = set()
-                if "idPrefixes" in manifest_data:
-                    for p in manifest_data["idPrefixes"]:
-                        prefixes.add(str(p))
-                for res in manifest_data.get("resources", []):
-                    if isinstance(res, dict):
-                        if res.get("name") in ["meta", "stream", "subtitles"]:
-                            for p in res.get("idPrefixes", []):
-                                prefixes.add(str(p))
-                
                 addon_id = manifest_data.get("id", url)
                 addon = {
                     "id": addon_id,
@@ -2573,7 +2566,6 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     "icon": manifest_data.get("icon"),
                     "manifest_url": url,
                     "enabled": True,
-                    "id_prefixes": list(prefixes),
                     "catalogs": manifest_data.get("catalogs", [])
                 }
                 

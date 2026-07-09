@@ -8,8 +8,6 @@ import logging
 from . import database
 import concurrent.futures
 
-DEFAULT_HEADERS = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'}
-
 if os.environ.get("FLATPAK_ID"):
     cache_dir_base = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
     CACHE_DIR = os.path.join(cache_dir_base, 'popcorn-box', 'api')
@@ -22,7 +20,7 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
     cache_file = os.path.join(CACHE_DIR, url_hash)
     
     if headers is None:
-        headers = DEFAULT_HEADERS
+        headers = {'User-Agent': 'Mozilla/5.0'}
     
     # Check if cache exists and is fresh
     if os.path.exists(cache_file):
@@ -48,7 +46,7 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
                 f.write(data_str)
             return data
     except Exception as e:
-        logging.debug(f"Error fetching items from {url}: {e}")
+        print(f"Error fetching items from {url}: {e}")
         # Return stale cache if network fails
         if os.path.exists(cache_file):
             try:
@@ -142,15 +140,10 @@ def fetch_movie_details(imdb_id, media_type="movie"):
         m_url = addon.get("manifest_url", "")
         if not m_url or m_url.startswith("builtin:"): continue
         
-        # Check if the addon supports this ID prefix
-        prefixes = addon.get("id_prefixes", [])
-        if prefixes and not any(imdb_id.startswith(p) for p in prefixes):
-            continue
-            
         base_url = m_url.rsplit("manifest.json", 1)[0]
         if not base_url.endswith("/"): base_url += "/"
         
-        meta_url = f"{base_url}meta/{c_type}/{urllib.parse.quote(imdb_id, safe='')}.json"
+        meta_url = f"{base_url}meta/{c_type}/{imdb_id}.json"
         data = _get_cached_request(meta_url, max_age_hours=168)
         
         if data and data.get("meta"):
@@ -237,11 +230,6 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
     
     def fetch_from_addon(addon):
-        # Check if the addon supports this ID prefix
-        prefixes = addon.get("id_prefixes", [])
-        if prefixes and not any(imdb_id.startswith(p) for p in prefixes):
-            return addon.get("name", "Unknown"), []
-            
         manifest_url = addon.get("manifest_url", "")
         if "manifest.json" in manifest_url:
             base_url = manifest_url.rsplit('manifest.json', 1)[0]
@@ -251,18 +239,17 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             base_url += '/'
             
         if actual_media == "series" and season is not None and episode is not None:
-            stream_id = f"{imdb_id}:{season}:{episode}"
-            url = f"{base_url}stream/series/{urllib.parse.quote(stream_id, safe='')}.json"
+            url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
         else:
-            url = f"{base_url}stream/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
+            url = f"{base_url}stream/movie/{imdb_id}.json"
             
         try:
-            req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
             with urllib.request.urlopen(req, timeout=8) as response:
                 data = json.loads(response.read().decode('utf-8'))
                 return addon.get("name", "Unknown"), data.get("streams", [])
         except Exception as e:
-            logging.debug(f"Error fetching from addon {addon.get('name')}: {e}")
+            print(f"Error fetching from addon {addon.get('name')}: {e}")
             return addon.get("name", "Unknown"), []
             
     all_streams = []
@@ -280,9 +267,9 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
                                 s["addon_name"] = addon_name
                                 all_streams.append(s)
                     except Exception as e:
-                        logging.debug(f"Error in addon future: {e}")
+                        print(f"Error in addon future: {e}")
             except concurrent.futures.TimeoutError:
-                logging.debug("Timeout fetching streams from some addons")
+                print("Timeout fetching streams from some addons")
             
     if not all_streams:
         return []
@@ -363,18 +350,17 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     return valid_streams
 
 def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
-    if not imdb_id or not imdb_id.startswith("tt"):
+    if not imdb_id:
         return []
         
     actual_media = "series" if media_type in ["series", "anime"] else media_type
     if actual_media == "series" and season is not None and episode is not None:
-        sub_id = f"{imdb_id}:{season}:{episode}"
-        url = f"https://opensubtitles-v3.strem.io/subtitles/series/{urllib.parse.quote(sub_id, safe='')}.json"
+        url = f"https://opensubtitles-v3.strem.io/subtitles/series/{imdb_id}:{season}:{episode}.json"
     else:
-        url = f"https://opensubtitles-v3.strem.io/subtitles/movie/{urllib.parse.quote(imdb_id, safe='')}.json"
+        url = f"https://opensubtitles-v3.strem.io/subtitles/movie/{imdb_id}.json"
         
     try:
-        req = urllib.request.Request(url, headers=DEFAULT_HEADERS)
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode('utf-8'))
             subs = data.get("subtitles", [])
@@ -382,7 +368,7 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
             eng_subs = [s for s in subs if s.get("lang", "").lower() in ["eng", "en", "english"]]
             return eng_subs
     except Exception as e:
-        logging.debug(f"Error fetching subtitles: {e}")
+        print(f"Error fetching subtitles: {e}")
         
     return []
 
@@ -402,13 +388,13 @@ def download_subtitle(sub_url, filename):
     file_path = os.path.join(download_dir, filename)
     
     try:
-        req = urllib.request.Request(sub_url, headers=DEFAULT_HEADERS)
+        req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
     except Exception as e:
-        logging.debug(f"Error downloading subtitle: {e}")
+        print(f"Error downloading subtitle: {e}")
         return None
 
 def download_subtitle_to_path(sub_url, file_path):
@@ -420,13 +406,13 @@ def download_subtitle_to_path(sub_url, file_path):
     os.makedirs(dir_name, exist_ok=True)
     
     try:
-        req = urllib.request.Request(sub_url, headers=DEFAULT_HEADERS)
+        req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
         with urllib.request.urlopen(req) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
     except Exception as e:
-        logging.debug(f"Error downloading subtitle: {e}")
+        print(f"Error downloading subtitle: {e}")
         return None
 
 def build_magnet(hash_string, title):
