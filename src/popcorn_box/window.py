@@ -256,6 +256,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.poster.set_can_shrink(True)
         self.poster.set_size_request(250, 375)
         self.poster.set_valign(Gtk.Align.START)
+        self.poster.set_halign(Gtk.Align.START)
         self.poster.set_content_fit(Gtk.ContentFit.COVER)
         self.top_hbox.append(self.poster)
         
@@ -264,6 +265,7 @@ class MovieDetailsPage(Gtk.Overlay):
             load_image_into_picture(poster_url, self.poster)
             
         self.info_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        self.info_vbox.set_hexpand(True)
         
         self.spinner = Gtk.Spinner()
         self.spinner.start()
