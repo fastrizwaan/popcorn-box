@@ -2322,10 +2322,18 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         entry.connect("activate", lambda e: self.install_addon(e.get_text(), entry))
         input_box.append(entry)
         
-        install_btn = Gtk.Button(label="Install Addon")
+        install_btn = Gtk.Button(label="Install")
         install_btn.set_css_classes(["suggested-action"])
         install_btn.connect("clicked", lambda b: self.install_addon(entry.get_text(), entry))
         input_box.append(install_btn)
+        
+        import_btn = Gtk.Button(label="Import")
+        import_btn.connect("clicked", self._on_import_clicked)
+        input_box.append(import_btn)
+        
+        export_btn = Gtk.Button(label="Export")
+        export_btn.connect("clicked", self._on_export_clicked)
+        input_box.append(export_btn)
         
         outer_box.append(input_box)
         
@@ -2402,6 +2410,55 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             outer_box.append(list_box)
             
         category_page.scrolled.set_child(outer_box)
+
+    def _on_export_clicked(self, btn):
+        dialog = Gtk.FileDialog.new()
+        dialog.set_initial_name("popcorn_addons.json")
+        dialog.save(self, None, self._on_export_saved)
+        
+    def _on_export_saved(self, dialog, result):
+        try:
+            file = dialog.save_finish(result)
+            if file:
+                import json
+                addons = database.get_addons()
+                with open(file.get_path(), "w") as f:
+                    json.dump(addons, f, indent=4)
+                print(f"Exported addons to {file.get_path()}")
+        except Exception as e:
+            print(f"Export cancelled or failed: {e}")
+
+    def _on_import_clicked(self, btn):
+        dialog = Gtk.FileDialog.new()
+        dialog.open(self, None, self._on_import_opened)
+        
+    def _on_import_opened(self, dialog, result):
+        try:
+            file = dialog.open_finish(result)
+            if file:
+                import json
+                with open(file.get_path(), "r") as f:
+                    imported = json.load(f)
+                
+                if isinstance(imported, list):
+                    current_addons = database.get_addons()
+                    existing_ids = {a.get("id") for a in current_addons if a.get("id")}
+                    added = False
+                    for addon in imported:
+                        a_id = addon.get("id")
+                        if a_id and a_id not in existing_ids:
+                            current_addons.append(addon)
+                            existing_ids.add(a_id)
+                            added = True
+                    
+                    if added:
+                        data = database._read_db()
+                        data["addons"] = current_addons
+                        database._write_db(data)
+                        # Refresh UI
+                        self.switch_category("addons", "All", self.addons_btn)
+        except Exception as e:
+            print(f"Import cancelled or failed: {e}")
 
     def populate_category_movies(self, category_page, movies, page, request_query=None):
         if request_query is not None and request_query != category_page.loaded_query:
