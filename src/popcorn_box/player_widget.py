@@ -228,8 +228,8 @@ class PlayerWidget(Gtk.Box):
     def _update_mpv_osd(self):
         if not HAS_MPV or not hasattr(self, 'mpv') or not self.mpv:
             return
-        if self.back_btn.get_visible() and self._current_info_text:
-            self.mpv.osd_msg1 = self._current_info_text
+        if self.back_btn.get_visible() and getattr(self, '_current_info_text', None):
+            self.mpv.osd_msg1 = f"{{\\fs22}}{self._current_info_text}"
         else:
             self.mpv.osd_msg1 = ""
 
@@ -544,11 +544,15 @@ class PlayerWidget(Gtk.Box):
             start_pos = database.get_progress(key)
 
         if HAS_MPV:
+            title_opt = getattr(self, '_current_media_title', "")
+            if not title_opt:
+                title_opt = "PopcornBox Media"
+                
             if start_pos >= 5:
                 print(f"Resuming playback at position {start_pos}s")
-                self.mpv.loadfile(url, start=str(int(start_pos)))
+                self.mpv.loadfile(url, force_media_title=title_opt, start=str(int(start_pos)))
             else:
-                self.mpv.loadfile(url)
+                self.mpv.loadfile(url, force_media_title=title_opt)
             if sub_file:
                 def add_sub(retries=30):
                     if not HAS_MPV or retries <= 0: return False
