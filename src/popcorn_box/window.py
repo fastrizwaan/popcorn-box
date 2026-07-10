@@ -235,6 +235,12 @@ class MovieDetailsPage(Gtk.Overlay):
         back_btn.connect("clicked", on_back_clicked)
         header_box.append(back_btn)
         
+        self.reload_btn = Gtk.Button(icon_name="view-refresh-symbolic")
+        self.reload_btn.set_tooltip_text("Reload Streams")
+        self.reload_btn.set_css_classes(['circular', 'flat'])
+        self.reload_btn.connect("clicked", lambda btn: self.fetch_torrents_async())
+        header_box.append(self.reload_btn)
+        
         self.main_box.append(header_box)
         
         self.content_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
@@ -2373,6 +2379,20 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         listbox.set_margin_end(12)
         listbox.set_margin_top(12)
         listbox.set_margin_bottom(12)
+        
+        header_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        back_btn = Gtk.Button(icon_name="go-previous-symbolic")
+        back_btn.set_tooltip_text("Back to Movies")
+        back_btn.set_css_classes(['circular', 'flat'])
+        back_btn.connect("clicked", lambda btn: self.switch_category("movie", "All", self.movies_btn))
+        header_box.append(back_btn)
+        
+        title = Gtk.Label(label="Downloads")
+        title.set_css_classes(["title-1"])
+        header_box.append(title)
+        
+        listbox.append(header_box)
+        
         category_page.scrolled.set_child(listbox)
         
         if not items:

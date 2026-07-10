@@ -324,7 +324,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             return addon.get("name", "Unknown"), []
             
     all_streams = []
-    num_workers = min(len(stremio_addons), 5)
+    num_workers = min(len(stremio_addons), 30)
     if num_workers > 0:
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
