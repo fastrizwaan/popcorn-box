@@ -1,6 +1,7 @@
 import json
 import urllib.request
 import urllib.parse
+import urllib.error
 import os
 import time
 import hashlib
@@ -45,10 +46,14 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
         with open(cache_file, 'w', encoding='utf-8') as f:
             f.write(data_str)
         return data
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error fetching items from {url}: {e}")
+        e.close()
     except Exception as e:
         print(f"Error fetching items from {url}: {e}")
-        # Return stale cache if network fails
-        if os.path.exists(cache_file):
+        
+    # Return stale cache if network fails
+    if os.path.exists(cache_file):
             try:
                 with open(cache_file, 'r', encoding='utf-8') as f:
                     return json.load(f)
@@ -271,6 +276,10 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             with urllib.request.urlopen(req, timeout=5) as response:
                 data = json.loads(response.read().decode('utf-8'))
             return addon.get("name", "Unknown"), data.get("streams", [])
+        except urllib.error.HTTPError as e:
+            print(f"HTTP Error {e.code} fetching from addon {addon.get('name')}")
+            e.close()
+            return addon.get("name", "Unknown"), []
         except Exception as e:
             print(f"Error fetching from addon {addon.get('name')}: {e}")
             return addon.get("name", "Unknown"), []
@@ -390,6 +399,9 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
             
             eng_subs = [s for s in subs if s.get("lang", "").lower() in ["eng", "en", "english"]]
             return eng_subs
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error {e.code} fetching subtitles")
+        e.close()
     except Exception as e:
         print(f"Error fetching subtitles: {e}")
         
@@ -416,6 +428,10 @@ def download_subtitle(sub_url, filename):
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error {e.code} downloading subtitle")
+        e.close()
+        return None
     except Exception as e:
         print(f"Error downloading subtitle: {e}")
         return None
@@ -434,6 +450,10 @@ def download_subtitle_to_path(sub_url, file_path):
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
+    except urllib.error.HTTPError as e:
+        print(f"HTTP Error {e.code} downloading subtitle")
+        e.close()
+        return None
     except Exception as e:
         print(f"Error downloading subtitle: {e}")
         return None

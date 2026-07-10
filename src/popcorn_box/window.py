@@ -11,6 +11,14 @@ from gi.repository import Gtk, Adw, GLib, Gdk, GdkPixbuf, Pango
 import urllib.request
 import os
 import hashlib
+import resource
+
+try:
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    if hard != resource.RLIM_INFINITY:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (hard, hard))
+except Exception:
+    pass
 from . import api
 from . import player
 from .player_widget import PlayerWidget, HAS_MPV
