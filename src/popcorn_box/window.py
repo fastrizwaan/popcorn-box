@@ -569,7 +569,10 @@ class MovieDetailsPage(Gtk.Overlay):
                     self.is_resume = True
             
             if not pending_s and seasons:
-                pending_s = seasons[0]
+                if 1 in seasons:
+                    pending_s = 1
+                else:
+                    pending_s = next((s for s in seasons if s > 0), seasons[0])
                 
             self.season_dropdown.set_model(Gtk.StringList.new([f"Season {s}" for s in seasons]))
             
