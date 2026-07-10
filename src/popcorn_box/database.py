@@ -87,6 +87,9 @@ def _read_db():
                                 a["manifest_url"] = "https://tmdb-addon.strem.io/manifest.json"
                                 migrated = True
                             break
+                    if not found:
+                        data["addons"].append(default_addon)
+                        migrated = True
                 if migrated:
                     _write_db(data)
             return data
