@@ -230,7 +230,30 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
     
     def fetch_from_addon(addon):
+        resources = addon.get("resources")
         manifest_url = addon.get("manifest_url", "")
+        
+        # If resources not in DB, fetch manifest and cache it
+        if resources is None and manifest_url:
+            try:
+                manifest_data = _get_cached_request(manifest_url, max_age_hours=168)
+                if manifest_data:
+                    resources = manifest_data.get("resources", [])
+                    addon["resources"] = resources
+            except Exception:
+                pass
+                
+        # If we know the resources, verify it supports streams
+        if resources is not None:
+            has_stream = False
+            for r in resources:
+                if isinstance(r, str) and r == "stream":
+                    has_stream = True
+                elif isinstance(r, dict) and r.get("name") == "stream":
+                    has_stream = True
+            if not has_stream:
+                return addon.get("name", "Unknown"), []
+                
         if "manifest.json" in manifest_url:
             base_url = manifest_url.rsplit('manifest.json', 1)[0]
         else:
@@ -242,7 +265,6 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
         else:
             url = f"{base_url}stream/movie/{imdb_id}.json"
-            
             
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
