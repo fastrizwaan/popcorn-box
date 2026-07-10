@@ -36,7 +36,7 @@ DEFAULT_ADDONS = [
         "name": "The Movie Database Addon",
         "version": "1.0.0",
         "description": "Catalogs for Movies and Series from TMDB. Fast updates.",
-        "manifest_url": "https://tmdb.strem.fun/manifest.json",
+        "manifest_url": "https://tmdb-addon.strem.io/manifest.json",
         "enabled": True,
         "catalogs": [
             {"type": "movie", "id": "tmdb.trending", "name": "Trending"},
@@ -81,6 +81,10 @@ def _read_db():
                             # Migrate missing catalogs to existing addons
                             if "catalogs" in default_addon and "catalogs" not in a:
                                 a["catalogs"] = default_addon["catalogs"]
+                                migrated = True
+                            # Migrate dead TMDB url
+                            if a.get("id") == "org.stremio.tmdb" and "tmdb.strem.fun" in a.get("manifest_url", ""):
+                                a["manifest_url"] = "https://tmdb-addon.strem.io/manifest.json"
                                 migrated = True
                             break
                     if not found:
