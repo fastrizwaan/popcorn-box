@@ -262,175 +262,86 @@ class MovieDetailsPage(Gtk.Overlay):
         
         poster_url = self.movie_stub.get("medium_cover_image")
         if poster_url:
-            load_image_into_picture(poster_url, self.poster)
+            load_image_into_picture(poster_url, self.poster, width=250, height=375)
             
         self.info_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.info_vbox.set_hexpand(True)
         
-        self.spinner = Gtk.Spinner()
-        self.spinner.start()
-        self.spinner.set_halign(Gtk.Align.CENTER)
-        self.spinner.set_valign(Gtk.Align.CENTER)
-        self.spinner.set_vexpand(True)
-        self.info_vbox.append(self.spinner)
-        
-        self.top_hbox.append(self.info_vbox)
-        self.content_box.append(self.top_hbox)
-        
-        self.progress_label = Gtk.Label(label="")
-        self.progress_label.set_halign(Gtk.Align.START)
-        
-        self.load_details_async()
-        
-    def load_details_async(self):
-        def fetch():
-            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type)
-            GLib.idle_add(self.build_ui, details)
-        threading.Thread(target=fetch, daemon=True).start()
-        
-    def toggle_favorite(self, details):
-        item_id = details.get("id")
-        if database.is_favorite(item_id):
-            database.remove_favorite(item_id)
-            self.detail_fav_btn.set_label("♡ Add to Favorites")
-        else:
-            database.add_favorite({
-                "id": item_id,
-                "title": details.get("title"),
-                "year": details.get("year"),
-                "medium_cover_image": details.get("medium_cover_image"),
-                "type": self.media_type
-            })
-            self.detail_fav_btn.set_label("♥ Remove from Favorites")
-            
-    def toggle_watched(self, details):
-        item_id = details.get("id")
-        if database.is_watched(item_id):
-            database.remove_watched(item_id)
-            self.detail_seen_btn.set_label("👁 Not Seen")
-        else:
-            database.add_watched({
-                "id": item_id,
-                "title": details.get("title"),
-                "year": details.get("year"),
-                "medium_cover_image": details.get("medium_cover_image"),
-                "type": self.media_type
-            })
-            self.detail_seen_btn.set_label("👁 Seen")
-        
-    def build_ui(self, details, torrents=None):
-        self.info_vbox.remove(self.spinner)
-        if not details:
-            self.info_vbox.append(Gtk.Label(label="Failed to load details."))
-            return
-            
-        if details.get("background"):
-            load_image_into_picture(details.get("background"), self.backdrop_pic)
-            
-        new_poster = details.get("medium_cover_image")
-        if new_poster and new_poster != self.movie_stub.get("medium_cover_image"):
-            load_image_into_picture(new_poster, self.poster)
+        # --- Skeleton Layout ---
         
         title_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         title_hbox.set_valign(Gtk.Align.CENTER)
         
-        title = Gtk.Label(label=details.get("title", ""))
-        title.set_css_classes(['title-1'])
-        title.set_halign(Gtk.Align.START)
-        title.set_wrap(True)
-        title_hbox.append(title)
+        self.title_label = Gtk.Label(label="███████████████████████")
+        self.title_label.set_css_classes(['title-1', 'skeleton'])
+        self.title_label.set_halign(Gtk.Align.START)
+        self.title_label.set_wrap(True)
+        title_hbox.append(self.title_label)
         
-        # Copy button
-        copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
-        copy_btn.set_tooltip_text("Copy Title")
-        copy_btn.set_css_classes(['flat', 'circular'])
-        copy_btn.set_valign(Gtk.Align.CENTER)
-        def on_copy_clicked(btn):
-            try:
-                clipboard = Gdk.Display.get_default().get_clipboard()
-                clipboard.set(details.get("title", ""))
-            except Exception as e:
-                print(f"Failed to copy to clipboard: {e}")
-        copy_btn.connect("clicked", on_copy_clicked)
-        title_hbox.append(copy_btn)
+        self.copy_btn = Gtk.Button(icon_name="edit-copy-symbolic")
+        self.copy_btn.set_tooltip_text("Copy Title")
+        self.copy_btn.set_css_classes(['flat', 'circular', 'skeleton'])
+        self.copy_btn.set_valign(Gtk.Align.CENTER)
+        title_hbox.append(self.copy_btn)
         
-        # G button
-        g_btn = Gtk.Button(label="G")
-        g_btn.set_tooltip_text("Search Google")
-        g_btn.set_css_classes(['flat', 'circular', 'g-button'])
-        g_btn.set_valign(Gtk.Align.CENTER)
-        def on_g_clicked(btn):
-            import urllib.parse
-            import subprocess
-            q = urllib.parse.quote(details.get("title", ""))
-            subprocess.Popen(["xdg-open", f"https://www.google.com/search?q={q}"])
-        g_btn.connect("clicked", on_g_clicked)
-        title_hbox.append(g_btn)
+        self.g_btn = Gtk.Button(label="G")
+        self.g_btn.set_tooltip_text("Search Google")
+        self.g_btn.set_css_classes(['flat', 'circular', 'g-button', 'skeleton'])
+        self.g_btn.set_valign(Gtk.Align.CENTER)
+        title_hbox.append(self.g_btn)
         
         self.info_vbox.append(title_hbox)
         
         meta_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         meta_hbox.set_valign(Gtk.Align.CENTER)
         
-        meta_str = f"{details.get('year', '')} • {details.get('runtime', '')} • {details.get('genre', '')} • "
-        meta = Gtk.Label(label=meta_str)
-        meta.set_halign(Gtk.Align.START)
-        meta.set_css_classes(['dim-label'])
-        meta_hbox.append(meta)
+        self.meta_label = Gtk.Label(label="██████████████████")
+        self.meta_label.set_halign(Gtk.Align.START)
+        self.meta_label.set_css_classes(['dim-label', 'skeleton'])
+        meta_hbox.append(self.meta_label)
         
-        # IMDb Link Button
-        imdb_id = details.get("imdb_id") or details.get("id")
-        imdb_rating = details.get("imdbRating", "")
-        if imdb_id:
-            imdb_btn = Gtk.Button(label=f"IMDb {imdb_rating}")
-            imdb_btn.set_css_classes(['flat', 'imdb-link-btn'])
-            imdb_btn.set_valign(Gtk.Align.CENTER)
-            def on_imdb_clicked(btn):
-                import subprocess
-                subprocess.Popen(["xdg-open", f"https://www.imdb.com/title/{imdb_id}/"])
-            imdb_btn.connect("clicked", on_imdb_clicked)
-            meta_hbox.append(imdb_btn)
-        else:
-            meta_no_link = Gtk.Label(label=f"IMDb {imdb_rating}")
-            meta_no_link.set_css_classes(['dim-label'])
-            meta_hbox.append(meta_no_link)
-            
+        self.imdb_btn = Gtk.Button(label="IMDb 0.0")
+        self.imdb_btn.set_css_classes(['flat', 'imdb-link-btn', 'skeleton'])
+        self.imdb_btn.set_valign(Gtk.Align.CENTER)
+        meta_hbox.append(self.imdb_btn)
+        
+        self.meta_no_link = Gtk.Label(label="IMDb 0.0")
+        self.meta_no_link.set_css_classes(['dim-label', 'skeleton'])
+        self.meta_no_link.set_visible(False)
+        meta_hbox.append(self.meta_no_link)
+        
         self.info_vbox.append(meta_hbox)
         
-        desc = Gtk.Label(label=details.get("description", ""))
-        desc.set_wrap(True)
-        desc.set_halign(Gtk.Align.START)
-        desc.set_max_width_chars(80)
-        desc.set_margin_top(16)
-        desc.set_margin_bottom(16)
-        self.info_vbox.append(desc)
+        self.desc_label = Gtk.Label(label="████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████")
+        self.desc_label.set_wrap(True)
+        self.desc_label.set_halign(Gtk.Align.START)
+        self.desc_label.set_max_width_chars(80)
+        self.desc_label.set_margin_top(16)
+        self.desc_label.set_margin_bottom(16)
+        self.desc_label.set_css_classes(['skeleton'])
+        self.info_vbox.append(self.desc_label)
         
         # Row 1: Actions (Fav, Seen, Trailer)
         self.row1_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.row1_box.set_margin_top(16)
         
-        item_id = details.get("id")
-        self.detail_fav_btn = Gtk.Button(label="♥ Remove from Favorites" if database.is_favorite(item_id) else "♡ Add to Favorites")
-        self.detail_fav_btn.set_css_classes(['pill'])
-        self.detail_fav_btn.connect("clicked", lambda x: self.toggle_favorite(details))
+        self.detail_fav_btn = Gtk.Button(label="♡ Add to Favorites")
+        self.detail_fav_btn.set_css_classes(['pill', 'skeleton'])
         self.row1_box.append(self.detail_fav_btn)
         
-        self.detail_seen_btn = Gtk.Button(label="👁 Seen" if database.is_watched(item_id) else "👁 Not Seen")
-        self.detail_seen_btn.set_css_classes(['pill'])
-        self.detail_seen_btn.connect("clicked", lambda x: self.toggle_watched(details))
+        self.detail_seen_btn = Gtk.Button(label="👁 Not Seen")
+        self.detail_seen_btn.set_css_classes(['pill', 'skeleton'])
         self.row1_box.append(self.detail_seen_btn)
         
-        trailer_btn = Gtk.Button()
+        self.trailer_btn = Gtk.Button()
         trailer_icon = Gtk.Image.new_from_icon_name("media-playback-start-symbolic")
         trailer_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         trailer_box.append(trailer_icon)
         trailer_box.append(Gtk.Label(label="Watch Trailer"))
-        trailer_btn.set_child(trailer_box)
-        trailer_btn.set_css_classes(['pill'])
-        trailer_btn.set_valign(Gtk.Align.CENTER)
-        trailer_btn.connect("clicked", lambda x: self.on_trailer_clicked(details.get("trailer")))
-        if not details.get("trailer"): trailer_btn.set_sensitive(False)
-        self.row1_box.append(trailer_btn)
+        self.trailer_btn.set_child(trailer_box)
+        self.trailer_btn.set_css_classes(['pill', 'skeleton'])
+        self.trailer_btn.set_valign(Gtk.Align.CENTER)
+        self.row1_box.append(self.trailer_btn)
         
         self.info_vbox.append(self.row1_box)
         
@@ -438,14 +349,163 @@ class MovieDetailsPage(Gtk.Overlay):
         self.row2_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.row2_box.set_margin_top(16)
         
+        self.season_dropdown = Gtk.DropDown.new_from_strings([])
+        self.season_dropdown.set_valign(Gtk.Align.CENTER)
+        self.row2_box.append(self.season_dropdown)
+        
+        self.episode_dropdown = Gtk.DropDown.new_from_strings([])
+        self.episode_dropdown.set_valign(Gtk.Align.CENTER)
+        self.row2_box.append(self.episode_dropdown)
+        
+        self.autoplay_check = Gtk.CheckButton(label="Auto Play Next Episodes")
+        self.autoplay_check.set_valign(Gtk.Align.CENTER)
+        self.autoplay_check.set_margin_start(8)
+        self.autoplay_check.set_active(database.get_setting("autoplay_next", True))
+        self.autoplay_check.connect("toggled", lambda cb: database.set_setting("autoplay_next", cb.get_active()))
+        self.row2_box.append(self.autoplay_check)
+        
+        self.row2_box.set_visible(False)
+        self.info_vbox.append(self.row2_box)
+        
+        self.quality_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        self.quality_button_box.set_valign(Gtk.Align.CENTER)
+        self.quality_button_box.set_margin_top(16)
+        self.quality_button_box.set_visible(False)
+        self.info_vbox.append(self.quality_button_box)
+        
+        # Row 3: Dropdown
+        self.row3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.row3_box.set_margin_top(12)
+        
+        self.file_dropdown = Gtk.DropDown.new_from_strings([])
+        self.file_dropdown.set_valign(Gtk.Align.CENTER)
+        
+        def on_dropdown_changed(dropdown, pspec):
+            if self._restoring_state: return
+            idx = dropdown.get_selected()
+            if hasattr(self, 'current_t_list') and idx != Gtk.INVALID_LIST_POSITION and idx < len(self.current_t_list):
+                self.selected_torrent = self.current_t_list[idx]
+                
+        self.file_dropdown.connect("notify::selected", on_dropdown_changed)
+        self.row3_box.append(self.file_dropdown)
+        self.row3_box.set_visible(False)
+        self.info_vbox.append(self.row3_box)
+        
+        # Row 4: Watch/Download/Subtitle buttons
+        self.row4_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        self.row4_box.set_margin_top(12)
+        
+        self.watch_btn = Gtk.Button(label="WATCH IT NOW")
+        self.watch_btn.set_css_classes(['suggested-action', 'pill'])
+        self.watch_btn.set_size_request(150, 40)
+        self.watch_btn.connect("clicked", self.on_watch_clicked)
+        self.row4_box.append(self.watch_btn)
+        
+        self.stop_btn = Gtk.Button(label="■ Stop")
+        self.stop_btn.set_css_classes(['destructive-action', 'pill'])
+        self.stop_btn.set_valign(Gtk.Align.CENTER)
+        self.stop_btn.connect("clicked", self.on_stop_clicked)
+        self.stop_btn.set_visible(False)
+        self.row4_box.append(self.stop_btn)
+        
+        self.download_btn = Gtk.Button(label="Download")
+        self.download_btn.set_css_classes(['pill'])
+        self.download_btn.set_valign(Gtk.Align.CENTER)
+        self.download_btn.connect("clicked", self.on_download_clicked)
+        self.row4_box.append(self.download_btn)
+        
+        self.download_sub_btn = Gtk.Button(label="Subtitle (EN)")
+        self.download_sub_btn.set_css_classes(['pill'])
+        self.download_sub_btn.set_valign(Gtk.Align.CENTER)
+        self.download_sub_btn.connect("clicked", self.on_download_sub_clicked)
+        self.row4_box.append(self.download_sub_btn)
+        
+        self.row4_box.set_visible(False)
+        self.info_vbox.append(self.row4_box)
+        
+        self.progress_label = Gtk.Label(label="")
+        self.progress_label.set_halign(Gtk.Align.START)
+        self.info_vbox.append(self.progress_label)
+        
+        self.top_hbox.append(self.info_vbox)
+        self.content_box.append(self.top_hbox)
+        
+        self.load_details_async()
+
+    def build_ui(self, details, torrents=None):
+        if not details:
+            self.title_label.set_text("Failed to load details.")
+            self.title_label.remove_css_class('skeleton')
+            return
+            
+        if details.get("background"):
+            load_image_into_picture(details.get("background"), self.backdrop_pic)
+            
+        self.title_label.set_text(details.get("title", ""))
+        self.title_label.remove_css_class('skeleton')
+        
+        self.copy_btn.remove_css_class('skeleton')
+        def on_copy_clicked(btn):
+            try:
+                clipboard = Gdk.Display.get_default().get_clipboard()
+                clipboard.set(details.get("title", ""))
+            except Exception as e:
+                print(f"Failed to copy to clipboard: {e}")
+        self.copy_btn.connect("clicked", on_copy_clicked)
+        
+        self.g_btn.remove_css_class('skeleton')
+        def on_g_clicked(btn):
+            import urllib.parse
+            import subprocess
+            q = urllib.parse.quote(details.get("title", ""))
+            subprocess.Popen(["xdg-open", f"https://www.google.com/search?q={q}"])
+        self.g_btn.connect("clicked", on_g_clicked)
+        
+        meta_str = f"{details.get('year', '')} • {details.get('runtime', '')} • {details.get('genre', '')} • "
+        self.meta_label.set_text(meta_str)
+        self.meta_label.remove_css_class('skeleton')
+        
+        imdb_id = details.get("imdb_id") or details.get("id")
+        imdb_rating = details.get("imdbRating", "")
+        if imdb_id:
+            self.imdb_btn.set_label(f"IMDb {imdb_rating}")
+            self.imdb_btn.remove_css_class('skeleton')
+            def on_imdb_clicked(btn):
+                import subprocess
+                subprocess.Popen(["xdg-open", f"https://www.imdb.com/title/{imdb_id}/"])
+            self.imdb_btn.connect("clicked", on_imdb_clicked)
+        else:
+            self.imdb_btn.set_visible(False)
+            self.meta_no_link.set_label(f"IMDb {imdb_rating}")
+            self.meta_no_link.remove_css_class('skeleton')
+            self.meta_no_link.set_visible(True)
+            
+        self.desc_label.set_text(details.get("description", ""))
+        self.desc_label.remove_css_class('skeleton')
+        
+        item_id = details.get("id")
+        self.detail_fav_btn.set_label("♥ Remove from Favorites" if database.is_favorite(item_id) else "♡ Add to Favorites")
+        self.detail_fav_btn.remove_css_class('skeleton')
+        self.detail_fav_btn.connect("clicked", lambda x: self.toggle_favorite(details))
+        
+        self.detail_seen_btn.set_label("👁 Seen" if database.is_watched(item_id) else "👁 Not Seen")
+        self.detail_seen_btn.remove_css_class('skeleton')
+        self.detail_seen_btn.connect("clicked", lambda x: self.toggle_watched(details))
+        
+        self.trailer_btn.remove_css_class('skeleton')
+        self.trailer_btn.connect("clicked", lambda x: self.on_trailer_clicked(details.get("trailer")))
+        if not details.get("trailer"): self.trailer_btn.set_sensitive(False)
+        
         self.is_resume = False
         if self.media_type in ["series", "anime"] and details.get("videos"):
+            self.row2_box.set_visible(True)
+            self.quality_button_box.set_margin_top(12)
+            
             videos = details.get("videos")
             seasons = sorted(list(set([v.get("season", 1) for v in videos])))
             
             watched_item = next((w for w in database.get_watched() if w.get("id") == self.movie_stub.get("id")), None)
             
-            # Prioritize active downloads for this item
             active_download = None
             from . import player
             with player._engines_lock:
@@ -471,20 +531,7 @@ class MovieDetailsPage(Gtk.Overlay):
             if not pending_s and seasons:
                 pending_s = seasons[0]
                 
-            self.season_dropdown = Gtk.DropDown.new_from_strings([f"Season {s}" for s in seasons])
-            self.season_dropdown.set_valign(Gtk.Align.CENTER)
-            self.row2_box.append(self.season_dropdown)
-            
-            self.episode_dropdown = Gtk.DropDown.new_from_strings([])
-            self.episode_dropdown.set_valign(Gtk.Align.CENTER)
-            self.row2_box.append(self.episode_dropdown)
-            
-            self.autoplay_check = Gtk.CheckButton(label="Auto Play Next Episodes")
-            self.autoplay_check.set_valign(Gtk.Align.CENTER)
-            self.autoplay_check.set_margin_start(8)
-            self.autoplay_check.set_active(database.get_setting("autoplay_next", True))
-            self.autoplay_check.connect("toggled", lambda cb: database.set_setting("autoplay_next", cb.get_active()))
-            self.row2_box.append(self.autoplay_check)
+            self.season_dropdown.set_model(Gtk.StringList.new([f"Season {s}" for s in seasons]))
             
             def on_season_changed(dropdown, *args):
                 idx = dropdown.get_selected()
@@ -533,76 +580,17 @@ class MovieDetailsPage(Gtk.Overlay):
                     on_season_changed(self.season_dropdown)
                 else:
                     self.season_dropdown.set_selected(s_idx)
-            
-        self.quality_button_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
-        self.quality_button_box.set_valign(Gtk.Align.CENTER)
-        
-        if self.media_type in ["series", "anime"] and details.get("videos"):
-            self.quality_button_box.set_margin_top(12)
-            self.info_vbox.append(self.row2_box)
+                    
         else:
             self.quality_button_box.set_margin_top(16)
             
-        self.info_vbox.append(self.quality_button_box)
-        
-        # Row 3: Dropdown
-        self.row3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.row3_box.set_margin_top(12)
-        
-        self.file_dropdown = Gtk.DropDown.new_from_strings([])
-        self.file_dropdown.set_valign(Gtk.Align.CENTER)
-        
-        def on_dropdown_changed(dropdown, pspec):
-            if self._restoring_state:
-                return
-            idx = dropdown.get_selected()
-            if hasattr(self, 'current_t_list') and idx != Gtk.INVALID_LIST_POSITION and idx < len(self.current_t_list):
-                self.selected_torrent = self.current_t_list[idx]
-                
-        self.file_dropdown.connect("notify::selected", on_dropdown_changed)
-        self.row3_box.append(self.file_dropdown)
-        
-        self.info_vbox.append(self.row3_box)
-        
-        # Row 4: Watch/Download/Subtitle buttons
-        self.row4_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        self.row4_box.set_margin_top(12)
-        
-        watch_label = "Continue Episode" if getattr(self, 'is_resume', False) else "WATCH IT NOW"
-        self.watch_btn = Gtk.Button(label=watch_label)
-        self.watch_btn.set_css_classes(['suggested-action', 'pill'])
-        self.watch_btn.set_size_request(150, 40)
-        self.watch_btn.connect("clicked", self.on_watch_clicked)
-        self.row4_box.append(self.watch_btn)
-        
-        self.stop_btn = Gtk.Button(label="■ Stop")
-        self.stop_btn.set_css_classes(['destructive-action', 'pill'])
-        self.stop_btn.set_valign(Gtk.Align.CENTER)
-        self.stop_btn.connect("clicked", self.on_stop_clicked)
-        self.stop_btn.set_visible(False)
-        self.row4_box.append(self.stop_btn)
-        
-        # Check if this item is currently paused in the global player → "Continue Watching"
         self._check_continue_watching(details.get("id"))
-        
-        self.download_btn = Gtk.Button(label="Download")
-        self.download_btn.set_css_classes(['pill'])
-        self.download_btn.set_valign(Gtk.Align.CENTER)
-        self.download_btn.connect("clicked", self.on_download_clicked)
-        self.row4_box.append(self.download_btn)
-        
-        self.download_sub_btn = Gtk.Button(label="Subtitle (EN)")
-        self.download_sub_btn.set_css_classes(['pill'])
-        self.download_sub_btn.set_valign(Gtk.Align.CENTER)
-        self.download_sub_btn.connect("clicked", self.on_download_sub_clicked)
-        self.row4_box.append(self.download_sub_btn)
-        
-        self.info_vbox.append(self.row4_box)
-        self.info_vbox.append(self.progress_label)
-        
+        if getattr(self, 'is_resume', False):
+            self.watch_btn.set_label("Continue Episode")
+            
         if self.media_type != "series":
             self.fetch_torrents_async()
-            
+
     def _check_continue_watching(self, item_id):
         """Update watch button to 'Continue Watching' if this item is actively downloading in the background."""
         if not hasattr(self, 'watch_btn'):

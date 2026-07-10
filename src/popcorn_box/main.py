@@ -60,6 +60,9 @@ class PopcornBoxApp(Adw.Application):
         button.flat.imdb-link-btn { color: #f5c518; padding: 0px 4px; font-weight: bold; border-bottom: 1px dashed #f5c518; border-radius: 0; background: transparent; }
         button.flat.imdb-link-btn:hover { color: #ffffff; border-bottom-style: solid; background: transparent; }
         button.flat.circular { padding: 4px; min-width: 28px; min-height: 28px; border-radius: 9999px; }
+        
+        .skeleton { color: transparent; background-color: rgba(255, 255, 255, 0.05); border-radius: 8px; border: none; box-shadow: none; }
+        .skeleton * { color: transparent !important; }
         """
         css_provider.load_from_data(css_data)
         Gtk.StyleContext.add_provider_for_display(
