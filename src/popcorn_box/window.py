@@ -24,7 +24,7 @@ else:
 os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
 from concurrent.futures import ThreadPoolExecutor
-_image_pool = ThreadPoolExecutor(max_workers=6)
+_image_pool = ThreadPoolExecutor(max_workers=4)
 
 def load_image_into_picture(url, picture_widget, width=None, height=None):
     if not url: return
@@ -34,44 +34,44 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
     
     def fetch_image():
         try:
+            data = None
             if os.path.exists(cache_file):
                 with open(cache_file, 'rb') as f:
                     data = f.read()
-                GLib.idle_add(set_image_from_data, data, picture_widget, width, height)
+            else:
+                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                with urllib.request.urlopen(req, timeout=5) as response:
+                    data = response.read()
+                with open(cache_file, 'wb') as f:
+                    f.write(data)
+            
+            if not data:
                 return
                 
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = response.read()
-                
-            with open(cache_file, 'wb') as f:
-                f.write(data)
-                
-            GLib.idle_add(set_image_from_data, data, picture_widget, width, height)
+            # Decode pixbuf in worker thread — keeps glycin temp files
+            # bounded to the pool size (4 max) instead of hundreds on main thread
+            loader = GdkPixbuf.PixbufLoader()
+            loader.write(data)
+            loader.close()
+            pixbuf = loader.get_pixbuf()
+            if pixbuf:
+                if width and height:
+                    pixbuf = pixbuf.scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
+                GLib.idle_add(_apply_pixbuf, picture_widget, pixbuf)
         except Exception as e:
             print(f"Failed to load image: {e}")
     
     _image_pool.submit(fetch_image)
 
-def set_image_from_data(data, picture_widget, width=None, height=None):
+def _apply_pixbuf(picture_widget, pixbuf):
+    """Apply a pre-decoded pixbuf to a widget. Runs on main GTK thread."""
     try:
-        loader = GdkPixbuf.PixbufLoader()
-        loader.write(data)
-        loader.close()
-        pixbuf = loader.get_pixbuf()
-        if pixbuf:
-            if width and height:
-                pixbuf = pixbuf.scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
-            picture_widget.set_can_shrink(True)
-            # Use a pixbuf-backed texture to avoid direct Vulkan GPU allocation
-            try:
-                texture = Gdk.Texture.new_for_pixbuf(pixbuf)
-                picture_widget.set_paintable(texture)
-            except Exception:
-                # Fallback: if GPU texture fails, set a placeholder
-                pass
-    except Exception as e:
-        print(f"Failed to set image: {e}")
+        picture_widget.set_can_shrink(True)
+        texture = Gdk.Texture.new_for_pixbuf(pixbuf)
+        picture_widget.set_paintable(texture)
+    except Exception:
+        pass  # GPU texture allocation failed — skip silently
+    return False
 
 
 _WINDOW_DRAG_BLOCKED = (
