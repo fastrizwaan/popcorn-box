@@ -372,7 +372,10 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             size = f"{size_match.group(1)} {size_match.group(2).upper()}"
             
         seeders = 0
-        seed_match = re.search(r'👤\s*(\d+)', title_str)
+        seed_match = re.search(r'(?:👤|S:|Seeds:|Seeders:)\s*(\d+)', title_str, re.IGNORECASE)
+        if not seed_match:
+            seed_match = re.search(r'\bS\s+(\d+)\b', title_str, re.IGNORECASE)
+        
         if seed_match:
             try:
                 seeders = int(seed_match.group(1))
