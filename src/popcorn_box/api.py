@@ -363,8 +363,9 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             continue
         seen_hashes.add(stream_id)
         
-        title_str = s.get("title", "")
-        name_and_title = (s.get("name", "") + " " + title_str)
+        title_str = s.get("title") or ""
+        name_str = s.get("name") or ""
+        name_and_title = (name_str + " " + title_str)
         
         quality = "Unknown"
         q_val = 0
@@ -414,7 +415,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             "q_val": q_val,
             "size": size,
             "seeders": seeders,
-            "title": s.get("name", ""),
+            "title": s.get("name") or "",
             "file_index": s.get("fileIdx"),
             "filename": filename,
             "addon_names": [s.get("addon_name")] if s.get("addon_name") else []
