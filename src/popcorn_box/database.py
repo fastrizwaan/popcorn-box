@@ -101,8 +101,13 @@ def _write_db(data):
         return
     with _db_lock:
         _ensure_db()
-        with open(DB_FILE, "w") as f:
-            json.dump(data, f, indent=4)
+        temp_file = DB_FILE.with_suffix(".tmp")
+        try:
+            with open(temp_file, "w") as f:
+                json.dump(data, f, indent=4)
+            temp_file.replace(DB_FILE)
+        except Exception as e:
+            print(f"Error writing database: {e}")
 
 # --- Favorites ---
 
