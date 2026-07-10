@@ -67,6 +67,16 @@ class PlayerWidget(Gtk.Box):
         self.back_btn.connect("clicked", lambda x: self._do_go_back())
         self.overlay.add_overlay(self.back_btn)
         
+        self.audio_norm_btn = Gtk.Button(icon_name="audio-volume-high-symbolic")
+        self.audio_norm_btn.set_halign(Gtk.Align.END)
+        self.audio_norm_btn.set_valign(Gtk.Align.START)
+        self.audio_norm_btn.set_margin_top(72)
+        self.audio_norm_btn.set_margin_end(16)
+        self.audio_norm_btn.set_css_classes(["osd", "circular"])
+        self.audio_norm_btn.set_tooltip_text("Audio Normalization")
+        self.audio_norm_btn.connect("clicked", self._toggle_audio_norm)
+        self.overlay.add_overlay(self.audio_norm_btn)
+        
         self.info_label = Gtk.Label(label="")
         self.info_label.set_halign(Gtk.Align.CENTER)
         self.info_label.set_valign(Gtk.Align.START)
@@ -224,6 +234,7 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     def _hide_back_btn(self):
         self.back_btn.set_visible(False)
+        if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(False)
         self.info_label.set_visible(False)
         self.media_info_label.set_visible(False)
         self.set_cursor(Gdk.Cursor.new_from_name("none"))
@@ -246,6 +257,7 @@ class PlayerWidget(Gtk.Box):
                 
         self.set_cursor(Gdk.Cursor.new_from_name("default"))
         self.back_btn.set_visible(True)
+        if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(True)
         if self.info_label.get_text():
             self.info_label.set_visible(True)
         if self.media_info_label.get_text():
@@ -479,6 +491,28 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
+    def apply_audio_norm(self):
+        from . import database
+        is_norm = database.get_setting("audio_normalize")
+        if HAS_MPV and hasattr(self, 'mpv') and self.mpv:
+            try:
+                if is_norm:
+                    self.mpv.af = "lavfi=[loudnorm=I=-16]"
+                    self.audio_norm_btn.set_icon_name("audio-volume-high-symbolic")
+                    self.audio_norm_btn.set_tooltip_text("Audio Normalization: ON")
+                else:
+                    self.mpv.af = ""
+                    self.audio_norm_btn.set_icon_name("audio-volume-low-symbolic")
+                    self.audio_norm_btn.set_tooltip_text("Audio Normalization: OFF")
+            except Exception as e:
+                print(f"Failed to set audio filter: {e}")
+
+    def _toggle_audio_norm(self, btn):
+        from . import database
+        is_norm = database.get_setting("audio_normalize")
+        database.set_setting("audio_normalize", not is_norm)
+        self.apply_audio_norm()
+
     def play(self, url, sub_file=None):
         self._is_playing = True
         self._playback_started = False
@@ -486,6 +520,7 @@ class PlayerWidget(Gtk.Box):
         self._up_next_triggered = False
         GLib.idle_add(self.up_next_box.set_visible, False)
         self._inhibit_screensaver()
+        self.apply_audio_norm()
         
         start_pos = 0
         if getattr(self, 'current_item_id', None):
