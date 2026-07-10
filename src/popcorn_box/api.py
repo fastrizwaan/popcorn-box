@@ -7,10 +7,6 @@ import hashlib
 import logging
 from . import database
 import concurrent.futures
-import threading
-
-# Global semaphore: cap ALL outbound HTTP connections across the entire app
-_net_sema = threading.Semaphore(8)
 
 if os.environ.get("FLATPAK_ID"):
     cache_dir_base = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
@@ -41,10 +37,9 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
         
     # Fetch from network
     try:
-        with _net_sema:
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data_str = response.read().decode('utf-8')
+        req = urllib.request.Request(url, headers=headers)
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data_str = response.read().decode('utf-8')
         data = json.loads(data_str)
         # Save to cache
         with open(cache_file, 'w', encoding='utf-8') as f:
@@ -248,18 +243,18 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
         else:
             url = f"{base_url}stream/movie/{imdb_id}.json"
             
+            
         try:
-            with _net_sema:
-                req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-                with urllib.request.urlopen(req, timeout=8) as response:
-                    data = json.loads(response.read().decode('utf-8'))
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                data = json.loads(response.read().decode('utf-8'))
             return addon.get("name", "Unknown"), data.get("streams", [])
         except Exception as e:
             print(f"Error fetching from addon {addon.get('name')}: {e}")
             return addon.get("name", "Unknown"), []
             
     all_streams = []
-    num_workers = len(stremio_addons)
+    num_workers = min(len(stremio_addons), 5)
     if num_workers > 0:
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
@@ -367,7 +362,7 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
         
     try:
         req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=5) as response:
             data = json.loads(response.read().decode('utf-8'))
             subs = data.get("subtitles", [])
             
@@ -395,7 +390,7 @@ def download_subtitle(sub_url, filename):
     
     try:
         req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
@@ -413,7 +408,7 @@ def download_subtitle_to_path(sub_url, file_path):
     
     try:
         req = urllib.request.Request(sub_url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:
             with open(file_path, 'wb') as f:
                 f.write(response.read())
         return file_path
