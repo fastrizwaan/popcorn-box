@@ -2684,5 +2684,24 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         database.set_addon_enabled(addon_id, enabled)
 
     def uninstall_addon(self, addon_id):
-        database.remove_addon(addon_id)
-        self.load_category_movies(self.category_pages["addons"])
+        if addon_id == "cinemeta":
+            dialog = Adw.MessageDialog(
+                transient_for=self,
+                heading="Warning",
+                body="Cinemeta is the core metadata provider. Deleting it may cause movies and series to lose their posters, descriptions, and catalog entries.\n\nAre you sure you want to permanently delete Cinemeta?"
+            )
+            dialog.add_response("cancel", "Cancel")
+            dialog.add_response("delete", "Delete Anyway")
+            dialog.set_response_appearance("delete", Adw.ResponseAppearance.DESTRUCTIVE)
+            
+            def on_response(d, response):
+                d.destroy()
+                if response == "delete":
+                    database.remove_addon(addon_id)
+                    self.load_category_movies(self.category_pages["addons"])
+                    
+            dialog.connect("response", on_response)
+            dialog.present()
+        else:
+            database.remove_addon(addon_id)
+            self.load_category_movies(self.category_pages["addons"])
