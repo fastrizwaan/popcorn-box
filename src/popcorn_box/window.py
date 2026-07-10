@@ -2456,7 +2456,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                         data["addons"] = current_addons
                         database._write_db(data)
                         # Refresh UI
-                        self.switch_category("addons", "All", self.addons_btn)
+                        self.load_category_movies(self.category_pages["addons"])
         except Exception as e:
             print(f"Import cancelled or failed: {e}")
 
