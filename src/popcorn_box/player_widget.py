@@ -78,20 +78,12 @@ class PlayerWidget(Gtk.Box):
         self.overlay.add_overlay(self.audio_norm_btn)
         
         self.info_label = Gtk.Label(label="")
-        self.info_label.set_halign(Gtk.Align.CENTER)
-        self.info_label.set_valign(Gtk.Align.START)
-        self.info_label.set_margin_top(22)
-        self.info_label.set_css_classes(["osd"])
         self.info_label.set_visible(False)
-        self.overlay.add_overlay(self.info_label)
-        
         self.media_info_label = Gtk.Label(label="")
-        self.media_info_label.set_halign(Gtk.Align.CENTER)
-        self.media_info_label.set_valign(Gtk.Align.START)
-        self.media_info_label.set_margin_top(62)
-        self.media_info_label.set_css_classes(["osd"])
         self.media_info_label.set_visible(False)
-        self.overlay.add_overlay(self.media_info_label)
+        
+        self._current_info_text = ""
+        self._current_media_title = ""
         
         self._hide_timeout_id = None
         self.current_item_id = None  # track which media is playing
@@ -232,11 +224,23 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     # Mouse input → MPV
     # ------------------------------------------------------------------
+    def _update_mpv_osd(self):
+        if not HAS_MPV or not hasattr(self, 'mpv') or not self.mpv:
+            return
+        if self.back_btn.get_visible():
+            parts = []
+            if self._current_media_title:
+                parts.append(self._current_media_title)
+            if self._current_info_text:
+                parts.append(self._current_info_text)
+            self.mpv.osd_msg1 = "\n".join(parts)
+        else:
+            self.mpv.osd_msg1 = ""
+
     def _hide_back_btn(self):
         self.back_btn.set_visible(False)
         if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(False)
-        self.info_label.set_visible(False)
-        self.media_info_label.set_visible(False)
+        self._update_mpv_osd()
         self.set_cursor(Gdk.Cursor.new_from_name("none"))
         self._hide_timeout_id = None
         return False
@@ -258,10 +262,7 @@ class PlayerWidget(Gtk.Box):
         self.set_cursor(Gdk.Cursor.new_from_name("default"))
         self.back_btn.set_visible(True)
         if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(True)
-        if self.info_label.get_text():
-            self.info_label.set_visible(True)
-        if self.media_info_label.get_text():
-            self.media_info_label.set_visible(True)
+        self._update_mpv_osd()
         if self._hide_timeout_id:
             GLib.source_remove(self._hide_timeout_id)
         self._hide_timeout_id = GLib.timeout_add(2000, self._hide_back_btn)
@@ -355,23 +356,17 @@ class PlayerWidget(Gtk.Box):
 
     def update_info(self, text):
         """Update the overlay info label with streaming status."""
-        self.info_label.set_text(text)
-        if self.back_btn.get_visible() and text:
-            self.info_label.set_visible(True)
-        elif not text:
-            self.info_label.set_visible(False)
+        self._current_info_text = text
+        self._update_mpv_osd()
 
     def set_media_title(self, title):
         """Set the media info overlay label."""
         import re
         if title:
-            # Normalize series titles: "Name - Season X, Ep Y" -> "Name Season X - Episode Y"
+            # Normalize series titles
             title = re.sub(r'\s*-\s*Season\s*(\d+),\s*Ep\s*(\d+)', r' Season \1 - Episode \2', title)
-        self.media_info_label.set_text(title or "")
-        if self.back_btn.get_visible() and title:
-            self.media_info_label.set_visible(True)
-        else:
-            self.media_info_label.set_visible(False)
+        self._current_media_title = title or ""
+        self._update_mpv_osd()
 
     # ------------------------------------------------------------------
     # Position and EOF
