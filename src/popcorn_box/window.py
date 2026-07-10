@@ -824,11 +824,14 @@ class MovieDetailsPage(Gtk.Overlay):
             if not size_str: return 0
             match = re.search(r'([\d\.]+)\s*(GB|MB|KB)', size_str.upper())
             if match:
-                val = float(match.group(1))
-                unit = match.group(2)
-                if unit == 'GB': return val * 1024
-                if unit == 'MB': return val
-                if unit == 'KB': return val / 1024
+                try:
+                    val = float(match.group(1))
+                    unit = match.group(2)
+                    if unit == 'GB': return val * 1024
+                    if unit == 'MB': return val
+                    if unit == 'KB': return val / 1024
+                except ValueError:
+                    return 0
             return 0
             
         for q_label, t_list in quality_groups.items():
