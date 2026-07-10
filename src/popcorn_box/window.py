@@ -648,6 +648,14 @@ class MovieDetailsPage(Gtk.Overlay):
             self.watch_btn.set_sensitive(False)
         if hasattr(self, 'download_btn') and self.download_btn:
             self.download_btn.set_sensitive(False)
+            
+        if hasattr(self, 'quality_button_box') and self.quality_button_box:
+            self.quality_button_box.set_visible(False)
+        if hasattr(self, 'row3_box') and self.row3_box:
+            self.row3_box.set_visible(False)
+        if hasattr(self, 'row4_box') and self.row4_box:
+            self.row4_box.set_visible(False)
+            
         if hasattr(self, 'progress_label') and self.progress_label:
             self.progress_label.set_text("Loading streams...")
         
@@ -672,11 +680,16 @@ class MovieDetailsPage(Gtk.Overlay):
             self.quality_button_box.remove(child)
             
         if not self.torrents:
-            self.watch_btn.set_sensitive(False)
-            self.download_btn.set_sensitive(False)
-            self.file_dropdown.set_model(Gtk.StringList.new(["No streams"]))
+            self.quality_button_box.set_visible(False)
+            self.row3_box.set_visible(False)
+            self.row4_box.set_visible(False)
+            if hasattr(self, 'progress_label') and self.progress_label:
+                self.progress_label.set_text("No streams available.")
             return
             
+        self.quality_button_box.set_visible(True)
+        self.row3_box.set_visible(True)
+        self.row4_box.set_visible(True)
         self.watch_btn.set_sensitive(True)
         self.download_btn.set_sensitive(True)
         
