@@ -493,13 +493,21 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     def apply_audio_norm(self):
         from . import database
-        is_norm = database.get_setting("audio_normalize")
+        norm_level = database.get_setting("audio_normalize")
+        if norm_level is None or isinstance(norm_level, bool):
+            norm_level = 16 if norm_level else 0
+            database.set_setting("audio_normalize", norm_level)
+            
         if HAS_MPV and hasattr(self, 'mpv') and self.mpv:
             try:
-                if is_norm:
+                if norm_level == 16:
                     self.mpv.af = "lavfi=[loudnorm=I=-16]"
+                    self.audio_norm_btn.set_icon_name("audio-volume-medium-symbolic")
+                    self.audio_norm_btn.set_tooltip_text("Audio Normalization: Normal (-16 LUFS)")
+                elif norm_level == 8:
+                    self.mpv.af = "lavfi=[loudnorm=I=-8]"
                     self.audio_norm_btn.set_icon_name("audio-volume-high-symbolic")
-                    self.audio_norm_btn.set_tooltip_text("Audio Normalization: ON")
+                    self.audio_norm_btn.set_tooltip_text("Audio Normalization: Extreme (-8 LUFS)")
                 else:
                     self.mpv.af = ""
                     self.audio_norm_btn.set_icon_name("audio-volume-low-symbolic")
@@ -509,8 +517,18 @@ class PlayerWidget(Gtk.Box):
 
     def _toggle_audio_norm(self, btn):
         from . import database
-        is_norm = database.get_setting("audio_normalize")
-        database.set_setting("audio_normalize", not is_norm)
+        norm_level = database.get_setting("audio_normalize")
+        if norm_level is None or isinstance(norm_level, bool):
+            norm_level = 16 if norm_level else 0
+            
+        if norm_level == 0:
+            new_level = 16
+        elif norm_level == 16:
+            new_level = 8
+        else:
+            new_level = 0
+            
+        database.set_setting("audio_normalize", new_level)
         self.apply_audio_norm()
 
     def play(self, url, sub_file=None):
