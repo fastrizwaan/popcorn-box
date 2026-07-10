@@ -1082,9 +1082,10 @@ class MovieDetailsPage(Gtk.Overlay):
                     if hasattr(widget, 'global_player'):
                         widget.global_player.player_widget.fetching_next_episode = True
                     
+                    is_http_current = magnet.startswith("http://") or magnet.startswith("https://")
                     # Torrents for series are not embedded in the initial API response, fetch them in background!
                     import threading
-                    def fetch_next_torrents():
+                    def fetch_next_torrents(want_http=is_http_current):
                         try:
                             torrents = api.get_torrents(self.movie_stub.get("id"), self.media_type, next_ep.get("season"), next_ep.get("episode"))
                             if not torrents:
@@ -1098,9 +1099,13 @@ class MovieDetailsPage(Gtk.Overlay):
                                 GLib.idle_add(clear_fetching)
                                 return
                             
+                            filtered_torrents = [t for t in torrents if bool(t.get('is_http')) == want_http]
+                            if not filtered_torrents:
+                                filtered_torrents = torrents # Fallback if none found
+                            
                             best_torrent = None
                             for p_q in ["1080p", "720p", "4K", "480p"]:
-                                for t in torrents:
+                                for t in filtered_torrents:
                                     if t.get("quality") == p_q:
                                         best_torrent = t
                                         break
@@ -1108,7 +1113,8 @@ class MovieDetailsPage(Gtk.Overlay):
                                     break
                             
                             if not best_torrent:
-                                best_torrent = torrents[0]
+                                best_torrent = filtered_torrents[0]
+                                
                             n_magnet = best_torrent.get("url") or best_torrent.get("magnet")
                             if not n_magnet and best_torrent.get("hash"):
                                 n_magnet = api.build_magnet(best_torrent.get("hash"), self.movie_stub.get("title", ""))
