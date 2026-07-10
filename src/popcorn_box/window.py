@@ -432,6 +432,43 @@ class MovieDetailsPage(Gtk.Overlay):
         
         self.load_details_async()
 
+
+    def load_details_async(self):
+        def fetch():
+            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type)
+            GLib.idle_add(self.build_ui, details)
+        threading.Thread(target=fetch, daemon=True).start()
+        
+    def toggle_favorite(self, details):
+        item_id = details.get("id")
+        if database.is_favorite(item_id):
+            database.remove_favorite(item_id)
+            self.detail_fav_btn.set_label("♡ Add to Favorites")
+        else:
+            database.add_favorite({
+                "id": item_id,
+                "title": details.get("title"),
+                "year": details.get("year"),
+                "medium_cover_image": details.get("medium_cover_image"),
+                "type": self.media_type
+            })
+            self.detail_fav_btn.set_label("♥ Remove from Favorites")
+            
+    def toggle_watched(self, details):
+        item_id = details.get("id")
+        if database.is_watched(item_id):
+            database.remove_watched(item_id)
+            self.detail_seen_btn.set_label("👁 Not Seen")
+        else:
+            database.add_watched({
+                "id": item_id,
+                "title": details.get("title"),
+                "year": details.get("year"),
+                "medium_cover_image": details.get("medium_cover_image"),
+                "type": self.media_type
+            })
+            self.detail_seen_btn.set_label("👁 Seen")
+
     def build_ui(self, details, torrents=None):
         if not details:
             self.title_label.set_text("Failed to load details.")
