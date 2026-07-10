@@ -4,6 +4,7 @@ import threading
 from pathlib import Path
 
 _db_lock = threading.RLock()
+_db_corrupted = False
 
 if os.environ.get("FLATPAK_ID"):
     _xdg_config = os.environ.get("XDG_CONFIG_HOME", str(Path.home() / ".config"))
@@ -54,6 +55,7 @@ def _ensure_db():
             json.dump({"favorites": [], "watched": [], "history": [], "downloads": [], "settings": {}, "addons": DEFAULT_ADDONS}, f, indent=4)
 
 def _read_db():
+    global _db_corrupted
     with _db_lock:
         _ensure_db()
         try:
@@ -87,10 +89,15 @@ def _read_db():
                 if migrated:
                     _write_db(data)
             return data
-        except Exception:
+        except Exception as e:
+            print(f"Failed to read database: {e}. Refusing future writes to prevent corruption.")
+            _db_corrupted = True
             return {"favorites": [], "watched": [], "history": [], "downloads": [], "settings": {}, "addons": DEFAULT_ADDONS}
 
 def _write_db(data):
+    if _db_corrupted:
+        print("Database read failed previously. Refusing to write to avoid overwriting with defaults.")
+        return
     with _db_lock:
         _ensure_db()
         with open(DB_FILE, "w") as f:
