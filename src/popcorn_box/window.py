@@ -250,12 +250,30 @@ class MovieDetailsPage(Gtk.Overlay):
         
         self.main_box.append(scrolled)
         
+        self.top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=32)
+        
+        self.poster = Gtk.Picture()
+        self.poster.set_can_shrink(True)
+        self.poster.set_size_request(250, 375)
+        self.poster.set_valign(Gtk.Align.START)
+        self.poster.set_content_fit(Gtk.ContentFit.COVER)
+        self.top_hbox.append(self.poster)
+        
+        poster_url = self.movie_stub.get("medium_cover_image")
+        if poster_url:
+            load_image_into_picture(poster_url, self.poster)
+            
+        self.info_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        
         self.spinner = Gtk.Spinner()
         self.spinner.start()
         self.spinner.set_halign(Gtk.Align.CENTER)
         self.spinner.set_valign(Gtk.Align.CENTER)
         self.spinner.set_vexpand(True)
-        self.content_box.append(self.spinner)
+        self.info_vbox.append(self.spinner)
+        
+        self.
+        self.content_box.append(self.top_hbox)
         
         self.progress_label = Gtk.Label(label="")
         self.progress_label.set_halign(Gtk.Align.START)
@@ -299,25 +317,17 @@ class MovieDetailsPage(Gtk.Overlay):
             self.detail_seen_btn.set_label("👁 Seen")
         
     def build_ui(self, details, torrents=None):
-        self.content_box.remove(self.spinner)
+        self.self.info_vbox.remove(self.spinner)
         if not details:
-            self.content_box.append(Gtk.Label(label="Failed to load details."))
+            self.self.info_vbox.append(Gtk.Label(label="Failed to load details."))
             return
             
         if details.get("background"):
             load_image_into_picture(details.get("background"), self.backdrop_pic)
             
-        top_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=32)
-        
-        poster = Gtk.Picture()
-        poster.set_can_shrink(True)
-        poster.set_size_request(250, 375)
-        poster.set_valign(Gtk.Align.START)
-        poster.set_content_fit(Gtk.ContentFit.COVER)
-        top_hbox.append(poster)
-        load_image_into_picture(details.get("medium_cover_image"), poster)
-        
-        info_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        new_poster = details.get("medium_cover_image")
+        if new_poster and new_poster != self.movie_stub.get("medium_cover_image"):
+            load_image_into_picture(new_poster, self.poster)
         
         title_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         title_hbox.set_valign(Gtk.Align.CENTER)
@@ -355,7 +365,7 @@ class MovieDetailsPage(Gtk.Overlay):
         g_btn.connect("clicked", on_g_clicked)
         title_hbox.append(g_btn)
         
-        info_vbox.append(title_hbox)
+        self.info_vbox.append(title_hbox)
         
         meta_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         meta_hbox.set_valign(Gtk.Align.CENTER)
@@ -383,7 +393,7 @@ class MovieDetailsPage(Gtk.Overlay):
             meta_no_link.set_css_classes(['dim-label'])
             meta_hbox.append(meta_no_link)
             
-        info_vbox.append(meta_hbox)
+        self.info_vbox.append(meta_hbox)
         
         desc = Gtk.Label(label=details.get("description", ""))
         desc.set_wrap(True)
@@ -391,7 +401,7 @@ class MovieDetailsPage(Gtk.Overlay):
         desc.set_max_width_chars(80)
         desc.set_margin_top(16)
         desc.set_margin_bottom(16)
-        info_vbox.append(desc)
+        self.info_vbox.append(desc)
         
         # Row 1: Actions (Fav, Seen, Trailer)
         self.row1_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -420,7 +430,7 @@ class MovieDetailsPage(Gtk.Overlay):
         if not details.get("trailer"): trailer_btn.set_sensitive(False)
         self.row1_box.append(trailer_btn)
         
-        info_vbox.append(self.row1_box)
+        self.info_vbox.append(self.row1_box)
         
         # Row 2: Series Selection (if applicable) & Qualities
         self.row2_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -527,11 +537,11 @@ class MovieDetailsPage(Gtk.Overlay):
         
         if self.media_type in ["series", "anime"] and details.get("videos"):
             self.quality_button_box.set_margin_top(12)
-            info_vbox.append(self.row2_box)
+            self.self.info_vbox.append(self.row2_box)
         else:
             self.quality_button_box.set_margin_top(16)
             
-        info_vbox.append(self.quality_button_box)
+        self.self.info_vbox.append(self.quality_button_box)
         
         # Row 3: Dropdown
         self.row3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -550,7 +560,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.file_dropdown.connect("notify::selected", on_dropdown_changed)
         self.row3_box.append(self.file_dropdown)
         
-        info_vbox.append(self.row3_box)
+        self.self.info_vbox.append(self.row3_box)
         
         # Row 4: Watch/Download/Subtitle buttons
         self.row4_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -585,11 +595,8 @@ class MovieDetailsPage(Gtk.Overlay):
         self.download_sub_btn.connect("clicked", self.on_download_sub_clicked)
         self.row4_box.append(self.download_sub_btn)
         
-        info_vbox.append(self.row4_box)
-        info_vbox.append(self.progress_label)
-        
-        top_hbox.append(info_vbox)
-        self.content_box.append(top_hbox)
+        self.self.info_vbox.append(self.row4_box)
+        self.self.info_vbox.append(self.progress_label)
         
         if self.media_type != "series":
             self.fetch_torrents_async()
