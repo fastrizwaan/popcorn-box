@@ -2632,10 +2632,44 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 info_box.set_hexpand(True)
                 
                 name_version_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+                
+                status_label = Gtk.Label(label="●")
+                status_label.set_markup("<span foreground='gray'>●</span>")
+                status_label.set_tooltip_text("Checking status...")
+                name_version_box.append(status_label)
+                
                 name_label = Gtk.Label(label=addon.get("name", "Unknown Addon"))
                 name_label.set_css_classes(["heading"])
                 name_label.set_halign(Gtk.Align.START)
                 name_version_box.append(name_label)
+                
+                manifest_url = addon.get("manifest_url", "")
+                if manifest_url and not manifest_url.startswith("builtin:"):
+                    def ping_addon(url, label):
+                        import urllib.request
+                        try:
+                            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+                            with urllib.request.urlopen(req, timeout=5) as response:
+                                if response.status == 200:
+                                    def set_online():
+                                        label.set_markup("<span foreground='#2ecc71'>●</span>")
+                                        label.set_tooltip_text("Online")
+                                    GLib.idle_add(set_online)
+                                else:
+                                    def set_offline():
+                                        label.set_markup("<span foreground='#e74c3c'>●</span>")
+                                        label.set_tooltip_text(f"Offline (HTTP {response.status})")
+                                    GLib.idle_add(set_offline)
+                        except Exception as e:
+                            def set_error():
+                                label.set_markup("<span foreground='#e74c3c'>●</span>")
+                                label.set_tooltip_text("Offline (Unreachable)")
+                            GLib.idle_add(set_error)
+                    import threading
+                    threading.Thread(target=ping_addon, args=(manifest_url, status_label), daemon=True).start()
+                else:
+                    status_label.set_markup("<span foreground='#2ecc71'>●</span>")
+                    status_label.set_tooltip_text("Online (Built-in)")
                 
                 version_label = Gtk.Label(label=f"v{addon.get('version', '0.0.1')}")
                 version_label.set_css_classes(["dim-label", "caption"])
