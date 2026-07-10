@@ -51,9 +51,20 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
             # Decode pixbuf in worker thread — keeps glycin temp files
             # bounded to the pool size (4 max) instead of hundreds on main thread
             loader = GdkPixbuf.PixbufLoader()
-            loader.write(data)
-            loader.close()
-            pixbuf = loader.get_pixbuf()
+            pixbuf = None
+            try:
+                loader.write(data)
+                loader.close()
+                pixbuf = loader.get_pixbuf()
+            except Exception as e:
+                # If image is corrupt (e.g. HTML 429 page), write() fails.
+                # MUST close loader to prevent leaking the glycin sub-process and FDs.
+                try:
+                    loader.close()
+                except Exception:
+                    pass
+                print(f"Failed to decode image {url}: {e}")
+                
             if pixbuf:
                 if width and height:
                     pixbuf = pixbuf.scale_simple(width, height, GdkPixbuf.InterpType.BILINEAR)
