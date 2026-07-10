@@ -255,14 +255,13 @@ class MovieDetailsPage(Gtk.Overlay):
         self.poster = Gtk.Picture()
         self.poster.set_can_shrink(True)
         self.poster.set_size_request(250, 375)
-        self.poster.set_valign(Gtk.Align.START)
-        self.poster.set_halign(Gtk.Align.START)
+        self.poster.set_hexpand(True)
         self.poster.set_content_fit(Gtk.ContentFit.COVER)
         self.top_hbox.append(self.poster)
         
         poster_url = self.movie_stub.get("medium_cover_image")
         if poster_url:
-            load_image_into_picture(poster_url, self.poster, width=250, height=375)
+            load_image_into_picture(poster_url, self.poster)
             
         self.info_vbox = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         self.info_vbox.set_hexpand(True)
@@ -312,7 +311,7 @@ class MovieDetailsPage(Gtk.Overlay):
         
         self.info_vbox.append(meta_hbox)
         
-        self.desc_label = Gtk.Label(label="████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████████")
+        self.desc_label = Gtk.Label(label="████████████ ████████████ ████████████ ████████████ ████████████ ████████████ ████████████ ████████████ ████████████")
         self.desc_label.set_wrap(True)
         self.desc_label.set_halign(Gtk.Align.START)
         self.desc_label.set_max_width_chars(80)
