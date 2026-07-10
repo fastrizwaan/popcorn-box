@@ -80,22 +80,41 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
             base_url = m_url.rsplit("manifest.json", 1)[0]
             if not base_url.endswith("/"): base_url += "/"
             
-            # Simple fallback search using top catalog if addon supports search
-            search_url = f"{base_url}catalog/{c_type}/top/search={urllib.parse.quote(query)}.json"
-            data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only)
-            
-            if data and "metas" in data:
-                for m in data["metas"]:
-                    imdb_id = m.get("imdb_id") or m.get("id")
-                    if imdb_id and imdb_id not in seen_ids:
-                        seen_ids.add(imdb_id)
-                        items.append({
-                            "id": imdb_id,
-                            "title": m.get("name", ""),
-                            "year": str(m.get("releaseInfo", "")).split("-")[0] if m.get("releaseInfo") else "",
-                            "medium_cover_image": m.get("poster", ""),
-                            "type": media_type
-                        })
+            search_catalogs = []
+            try:
+                manifest_data = _get_cached_request(m_url, max_age_hours=168, cache_only=cache_only)
+                if manifest_data and "catalogs" in manifest_data:
+                    for cat in manifest_data["catalogs"]:
+                        if cat.get("type") == c_type:
+                            has_search = False
+                            for extra in cat.get("extra", []):
+                                if getattr(extra, "get", lambda x: None)("name") == "search":
+                                    has_search = True
+                                    break
+                            if has_search:
+                                search_catalogs.append(cat.get("id"))
+            except Exception:
+                pass
+                
+            if not search_catalogs:
+                search_catalogs = ["top"]
+                
+            for cat_id in search_catalogs:
+                search_url = f"{base_url}catalog/{c_type}/{cat_id}/search={urllib.parse.quote(query)}.json"
+                data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only)
+                
+                if data and "metas" in data:
+                    for m in data["metas"]:
+                        imdb_id = m.get("imdb_id") or m.get("id")
+                        if imdb_id and imdb_id not in seen_ids:
+                            seen_ids.add(imdb_id)
+                            items.append({
+                                "id": imdb_id,
+                                "title": m.get("name", ""),
+                                "year": str(m.get("releaseInfo", "")).split("-")[0] if m.get("releaseInfo") else "",
+                                "medium_cover_image": m.get("poster", ""),
+                                "type": media_type
+                            })
         return items
 
     if catalog_url:
@@ -330,18 +349,19 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     valid_streams = []
     seen_hashes = set()
     for s in all_streams:
-        if not s.get("infoHash"):
+        is_http = bool(s.get("url"))
+        if not s.get("infoHash") and not is_http:
             continue
             
-        info_hash = s["infoHash"].lower()
-        if info_hash in seen_hashes:
+        stream_id = s.get("infoHash", "").lower() if not is_http else hashlib.md5(s["url"].encode()).hexdigest()
+        if stream_id in seen_hashes:
             for vs in valid_streams:
-                if vs["hash"].lower() == info_hash:
+                if vs["hash"].lower() == stream_id:
                     if s.get("addon_name") and s["addon_name"] not in vs["addon_names"]:
                         vs["addon_names"].append(s["addon_name"])
                     break
             continue
-        seen_hashes.add(info_hash)
+        seen_hashes.add(stream_id)
         
         title_str = s.get("title", "")
         name_and_title = (s.get("name", "") + " " + title_str)
@@ -387,7 +407,9 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
             filename = name_and_title.replace('/', '_')
             
         valid_streams.append({
-            "hash": s["infoHash"],
+            "hash": stream_id,
+            "url": s.get("url"),
+            "is_http": is_http,
             "quality": quality,
             "q_val": q_val,
             "size": size,

@@ -608,6 +608,9 @@ class MovieDetailsPage(Gtk.Overlay):
                     return
                 self.selected_episode = ep
                 self._initial_fetch_done = True
+                
+                if hasattr(self, 'download_btn'): self.download_btn.set_sensitive(False)
+                
                 self.fetch_torrents_async()
                 self._check_continue_watching(self.movie_stub.get("id"))
                 
@@ -751,11 +754,27 @@ class MovieDetailsPage(Gtk.Overlay):
             
             self.current_t_list = t_list
             self.selected_torrent = t_list[0]
+            if self.selected_torrent.get("is_http"):
+                self.download_btn.set_sensitive(False)
+                self.download_btn.set_tooltip_text("Direct streams cannot be downloaded.")
+            else:
+                self.download_btn.set_sensitive(True)
+                self.download_btn.set_tooltip_text("Download Torrent")
+                
             strings = []
             for t in t_list:
                 addons_str = ", ".join(t.get("addon_names", []))
                 addons_suffix = f" [{addons_str}]" if addons_str else ""
-                strings.append(f"{t.get('size', 'Unknown')} ({t.get('seeders', 0)} seeds){addons_suffix}")
+                
+                size_str = t.get('size', '')
+                if not size_str and t.get('is_http'): size_str = "Direct Stream"
+                elif not size_str: size_str = "Unknown Size"
+                
+                seed_str = ""
+                if not t.get('is_http'):
+                    seed_str = f" ({t.get('seeders', 0)} seeds)"
+                    
+                strings.append(f"{size_str}{seed_str}{addons_suffix}")
             self.file_dropdown.set_model(Gtk.StringList.new(strings))
             self.file_dropdown.set_selected(0)
             
@@ -1650,7 +1669,11 @@ class GlobalPlayerView(Gtk.Box):
                     root.stack.set_visible_child_name(f"grid_{orig_media}")
         self.player_widget.on_go_back = go_back_to_source
         
-        player.play_magnet(magnet, "mpv", progress_callback=self._create_progress_cb(), file_index=file_index, item_id=item_id, media_type=media_type, season=season, episode=episode)
+        if magnet.startswith("http://") or magnet.startswith("https://"):
+            cb = self._create_progress_cb()
+            GLib.idle_add(cb, {"status": "Playing HTTP Stream...", "url": magnet})
+        else:
+            player.play_magnet(magnet, "mpv", progress_callback=self._create_progress_cb(), file_index=file_index, item_id=item_id, media_type=media_type, season=season, episode=episode)
         
     def start_trailer(self, trailer_id, title):
         self.stop_all()
