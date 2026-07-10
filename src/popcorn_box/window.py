@@ -272,7 +272,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.spinner.set_vexpand(True)
         self.info_vbox.append(self.spinner)
         
-        self.
+        self.top_hbox.append(self.info_vbox)
         self.content_box.append(self.top_hbox)
         
         self.progress_label = Gtk.Label(label="")
