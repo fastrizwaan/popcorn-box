@@ -809,7 +809,7 @@ class MovieDetailsPage(Gtk.Overlay):
         if self.media_type in ["series", "anime"] and sel_season is not None and sel_episode is not None:
             key = f"{item_id}_S{sel_season}_E{sel_episode}"
         from . import database
-        saved_stream_url = database.get_settings(f"stream_{key}")
+        saved_stream_url = database.get_setting(f"stream_{key}")
         saved_stream_q_label = None
         
         import re
@@ -1079,6 +1079,32 @@ class MovieDetailsPage(Gtk.Overlay):
         file_index = torrent.get("file_index")
         self._start_streaming(magnet, file_index)
         
+    def on_stream_failed(self):
+        """Auto-fallback to the next available stream if the current one fails."""
+        if hasattr(self, 'current_t_list') and hasattr(self, 'selected_torrent') and self.current_t_list:
+            try:
+                current_idx = self.current_t_list.index(self.selected_torrent)
+                next_idx = current_idx + 1
+                if next_idx < len(self.current_t_list):
+                    self.selected_torrent = self.current_t_list[next_idx]
+                    if hasattr(self, 'file_dropdown'):
+                        self.file_dropdown.set_selected(next_idx)
+                    
+                    magnet = self.selected_torrent.get("url") or self.selected_torrent.get("magnet")
+                    if not magnet and self.selected_torrent.get("hash"):
+                        from . import api
+                        magnet = api.build_magnet(self.selected_torrent.get("hash"), self.movie_stub.get("title", ""))
+                    
+                    if magnet:
+                        if hasattr(self, 'progress_label') and self.progress_label:
+                            self.progress_label.set_text(f"Stream failed. Auto-playing stream {next_idx+1}...")
+                        self._start_streaming(magnet, self.selected_torrent.get("file_index"))
+                else:
+                    if hasattr(self, 'progress_label') and self.progress_label:
+                        self.progress_label.set_text("All available streams failed to play.")
+            except ValueError:
+                pass
+                
     def _start_streaming(self, magnet, file_index):
         """Send the stream request to the global player and switch tabs."""
         if not magnet:
@@ -1094,7 +1120,12 @@ class MovieDetailsPage(Gtk.Overlay):
         if self.media_type in ["series", "anime"] and sel_season is not None and sel_episode is not None:
             key = f"{item_id}_S{sel_season}_E{sel_episode}"
         from . import database
-        database.save_settings(f"stream_{key}", magnet)
+        database.set_setting(f"stream_{key}", magnet)
+        
+        # Attach fallback callback
+        widget = self.get_root()
+        if hasattr(widget, 'global_player'):
+            widget.global_player.player_widget.on_playback_failed = self.on_stream_failed
         
         # Mark as watched when playback starts
         watch_data = {

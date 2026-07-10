@@ -435,6 +435,10 @@ class PlayerWidget(Gtk.Box):
             if getattr(self, '_is_playing', False) and getattr(self, '_playback_started', False):
                 self._is_playing = False
                 self.handle_eof_or_idle()
+            elif getattr(self, '_is_playing', False) and not getattr(self, '_playback_started', False):
+                self._is_playing = False
+                if hasattr(self, 'on_playback_failed') and callable(self.on_playback_failed):
+                    GLib.idle_add(self.on_playback_failed)
 
     def _on_pause_change(self, name, value):
         # value is True if paused, False if playing
