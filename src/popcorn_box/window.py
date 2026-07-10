@@ -802,6 +802,52 @@ class MovieDetailsPage(Gtk.Overlay):
             elif "720" in q: quality_groups["720p"].append(t)
             else: quality_groups["More"].append(t)
             
+        item_id = self.movie_stub.get("id")
+        sel_season = getattr(self, 'selected_season', None)
+        sel_episode = getattr(self, 'selected_episode', None)
+        key = item_id
+        if self.media_type in ["series", "anime"] and sel_season is not None and sel_episode is not None:
+            key = f"{item_id}_S{sel_season}_E{sel_episode}"
+        from . import database
+        saved_stream_url = database.get_settings(f"stream_{key}")
+        saved_stream_q_label = None
+        
+        import re
+        def parse_size_mb(size_str):
+            if not size_str: return 0
+            match = re.search(r'([\d\.]+)\s*(GB|MB|KB)', size_str.upper())
+            if match:
+                val = float(match.group(1))
+                unit = match.group(2)
+                if unit == 'GB': return val * 1024
+                if unit == 'MB': return val
+                if unit == 'KB': return val / 1024
+            return 0
+            
+        for q_label, t_list in quality_groups.items():
+            if not t_list: continue
+            
+            if q_label == "1080p":
+                def sort_1080p(t):
+                    seeds = int(t.get('seeders', 0))
+                    size_mb = parse_size_mb(t.get('size', ''))
+                    if 0 < size_mb <= 4096:
+                        return seeds + 1000000
+                    return seeds
+                t_list.sort(key=sort_1080p, reverse=True)
+            else:
+                t_list.sort(key=lambda t: int(t.get('seeders', 0)), reverse=True)
+                
+            if saved_stream_url:
+                for i, t in enumerate(t_list):
+                    t_url = t.get('url') or t.get('magnet')
+                    if not t_url and t.get('hash'):
+                        t_url = api.build_magnet(t.get('hash'), self.movie_stub.get('title', ''))
+                    if t_url == saved_stream_url:
+                        t_list.insert(0, t_list.pop(i))
+                        saved_stream_q_label = q_label
+                        break
+                        
         self.selected_torrent = None
         self.quality_buttons = []
         self.current_t_list = []
@@ -852,6 +898,9 @@ class MovieDetailsPage(Gtk.Overlay):
                 self.quality_button_box.append(btn)
                 
                 cur_priority = priority.get(q_label, 99)
+                if saved_stream_q_label == q_label:
+                    cur_priority = -1
+                    
                 if cur_priority < best_priority:
                     best_priority = cur_priority
                     default_btn = btn
@@ -1037,6 +1086,15 @@ class MovieDetailsPage(Gtk.Overlay):
             
         self._last_played_magnet = magnet
         self._last_played_file_index = file_index
+        
+        item_id = self.movie_stub.get("id")
+        sel_season = getattr(self, 'selected_season', None)
+        sel_episode = getattr(self, 'selected_episode', None)
+        key = item_id
+        if self.media_type in ["series", "anime"] and sel_season is not None and sel_episode is not None:
+            key = f"{item_id}_S{sel_season}_E{sel_episode}"
+        from . import database
+        database.save_settings(f"stream_{key}", magnet)
         
         # Mark as watched when playback starts
         watch_data = {
