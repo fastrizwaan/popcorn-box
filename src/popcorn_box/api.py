@@ -145,7 +145,27 @@ def fetch_movie_details(imdb_id, media_type="movie"):
         m_url = addon.get("manifest_url", "")
         if not m_url or m_url.startswith("builtin:"): continue
         
-        base_url = m_url.rsplit("manifest.json", 1)[0]
+        resources = addon.get("resources")
+        if resources is None:
+            try:
+                manifest_data = _get_cached_request(m_url, max_age_hours=168)
+                if manifest_data:
+                    resources = manifest_data.get("resources", [])
+                    addon["resources"] = resources
+            except Exception:
+                pass
+                
+        if resources is not None:
+            has_meta = False
+            for r in resources:
+                if isinstance(r, str) and r == "meta":
+                    has_meta = True
+                elif isinstance(r, dict) and r.get("name") == "meta":
+                    has_meta = True
+            if not has_meta:
+                continue
+        
+        base_url = m_url.rsplit("manifest.json", 1)[0] if "manifest.json" in m_url else m_url
         if not base_url.endswith("/"): base_url += "/"
         
         meta_url = f"{base_url}meta/{c_type}/{imdb_id}.json"
