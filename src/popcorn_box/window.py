@@ -630,9 +630,16 @@ class MovieDetailsPage(Gtk.Overlay):
                 
                 self.selected_season = s
                 eps = [v for v in videos if v.get("season") == s]
-                eps.sort(key=lambda x: x.get("episode", 0))
-                self.current_episodes = eps
-                ep_strings = [f"Ep {e.get('episode')}: {e.get('title') or e.get('name', '')}" for e in eps]
+                unique_eps = []
+                seen_eps = set()
+                for e in eps:
+                    ep_num = e.get("episode", 0)
+                    if ep_num not in seen_eps:
+                        seen_eps.add(ep_num)
+                        unique_eps.append(e)
+                unique_eps.sort(key=lambda x: x.get("episode", 0))
+                self.current_episodes = unique_eps
+                ep_strings = [f"Ep {e.get('episode')}: {e.get('title') or e.get('name', '')}" for e in unique_eps]
                 self.episode_dropdown.set_model(Gtk.StringList.new(ep_strings))
                 
                 e_idx = 0
