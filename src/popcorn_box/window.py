@@ -1683,8 +1683,28 @@ class GlobalPlayerView(Gtk.Box):
         self.player_widget.on_go_back = go_back_to_source
         
         if magnet.startswith("http://") or magnet.startswith("https://"):
-            cb = self._create_progress_cb()
-            GLib.idle_add(cb, {"status": "Playing HTTP Stream...", "url": magnet})
+            def load_http_with_subs():
+                cb = self._create_progress_cb()
+                GLib.idle_add(cb, {"status": "Fetching subtitles..."})
+                
+                sub_path = None
+                subs = api.get_subtitles(item_id, media_type, season, episode)
+                eng_subs = [s for s in subs if "en" in s.get("lang", "").lower() or "english" in s.get("lang", "").lower()]
+                if eng_subs:
+                    sub_url = eng_subs[0].get("url")
+                    try:
+                        import tempfile, os
+                        temp_dir = os.path.join(tempfile.gettempdir(), "popcorn_subs")
+                        os.makedirs(temp_dir, exist_ok=True)
+                        sub_path = os.path.join(temp_dir, f"sub_{item_id}_{season}_{episode}.srt")
+                        api.download_subtitle_to_path(sub_url, sub_path)
+                    except Exception as e:
+                        print(f"Error downloading HTTP stream subtitle: {e}")
+                
+                GLib.idle_add(cb, {"status": "Playing HTTP Stream...", "url": magnet, "sub_file": sub_path})
+                
+            import threading
+            threading.Thread(target=load_http_with_subs, daemon=True).start()
         else:
             player.play_magnet(magnet, "mpv", progress_callback=self._create_progress_cb(), file_index=file_index, item_id=item_id, media_type=media_type, season=season, episode=episode)
         
