@@ -733,9 +733,13 @@ class MovieDetailsPage(Gtk.Overlay):
         self.watch_btn.set_sensitive(True)
         self.download_btn.set_sensitive(True)
         
-        quality_groups = {"4K": [], "2160p": [], "1080p": [], "720p": [], "More": []}
+        quality_groups = {"4K": [], "2160p": [], "1080p": [], "720p": [], "More": [], "Direct": []}
         
         for t in self.torrents:
+            if t.get('is_http'):
+                quality_groups["Direct"].append(t)
+                continue
+                
             q = t.get('quality', 'Unknown').upper()
             if "4K" in q: quality_groups["4K"].append(t)
             elif "2160" in q: quality_groups["2160p"].append(t)
@@ -778,12 +782,12 @@ class MovieDetailsPage(Gtk.Overlay):
             self.file_dropdown.set_model(Gtk.StringList.new(strings))
             self.file_dropdown.set_selected(0)
             
-        priority = {"1080p": 1, "720p": 2, "4K": 3, "2160p": 4, "More": 5}
+        priority = {"1080p": 1, "720p": 2, "4K": 3, "2160p": 4, "More": 5, "Direct": 6}
         best_priority = 99
         default_btn = None
         default_t_list = None
         
-        for q_label in ["4K", "2160p", "1080p", "720p", "More"]:
+        for q_label in ["4K", "2160p", "1080p", "720p", "More", "Direct"]:
             t_list = quality_groups[q_label]
             if t_list:
                 btn = Gtk.Button(label=q_label)
