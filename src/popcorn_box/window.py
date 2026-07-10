@@ -1606,6 +1606,9 @@ class GlobalPlayerView(Gtk.Box):
         self.stop_all()
         if hasattr(self, 'player_widget'):
             self.player_widget.next_episode_data = None
+            self.player_widget.current_item_id = None
+            self.player_widget.current_season = None
+            self.player_widget.current_episode = None
             self.player_widget.set_media_title(title)
         self.stack.set_visible_child_name("download")
         self.dl_title.set_text(title)
