@@ -368,6 +368,9 @@ class PlayerWidget(Gtk.Box):
         if value: self._current_duration = value
 
     def _on_time_pos(self, name, value):
+        if value and value > 0:
+            self._playback_started = True
+            
         if not value or not self._current_duration:
             return
             
@@ -428,17 +431,15 @@ class PlayerWidget(Gtk.Box):
             self.handle_eof_or_idle()
 
     def _on_idle_change(self, name, value):
-        if not value:
-            self._playback_started = True
-        elif value:
+        if value:
             self._uninhibit_screensaver()
-            if getattr(self, '_is_playing', False) and getattr(self, '_playback_started', False):
+            if getattr(self, '_is_playing', False):
                 self._is_playing = False
-                self.handle_eof_or_idle()
-            elif getattr(self, '_is_playing', False) and not getattr(self, '_playback_started', False):
-                self._is_playing = False
-                if hasattr(self, 'on_playback_failed') and callable(self.on_playback_failed):
-                    GLib.idle_add(self.on_playback_failed)
+                if getattr(self, '_playback_started', False):
+                    self.handle_eof_or_idle()
+                else:
+                    if hasattr(self, 'on_playback_failed') and callable(self.on_playback_failed):
+                        GLib.idle_add(self.on_playback_failed)
 
     def _on_pause_change(self, name, value):
         # value is True if paused, False if playing
