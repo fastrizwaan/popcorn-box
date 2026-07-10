@@ -502,15 +502,17 @@ class PlayerWidget(Gtk.Box):
             else:
                 self.mpv.loadfile(url)
             if sub_file:
-                # MPV requires the file to be loaded before adding subtitles. Retry for up to 5 seconds.
-                def add_sub(retries=10):
+                def add_sub(retries=30):
                     if not HAS_MPV or retries <= 0: return False
-                    try:
-                        self.mpv.command("sub-add", sub_file)
-                        return False
-                    except Exception:
-                        GLib.timeout_add(500, lambda: add_sub(retries - 1))
-                        return False
+                    if getattr(self, '_playback_started', False):
+                        try:
+                            self.mpv.command("sub-add", sub_file)
+                            return False
+                        except Exception as e:
+                            print(f"Failed to add sub: {e}")
+                            return False
+                    GLib.timeout_add(500, lambda: add_sub(retries - 1))
+                    return False
                 GLib.timeout_add(500, add_sub)
             self.mpv.pause = False
             self.gl_area.grab_focus()

@@ -1236,14 +1236,15 @@ class MovieDetailsPage(Gtk.Overlay):
                                         n_magnet += f"&tr={encoded_tr}"
                                         
                             if n_magnet:
-                                player.download_magnet_background(
-                                    n_magnet,
-                                    file_index=best_torrent.get("file_index"),
-                                    item_id=self.movie_stub.get("id"),
-                                    media_type=self.media_type,
-                                    season=next_ep.get("season"),
-                                    episode=next_ep.get("episode")
-                                )
+                                if not is_http_current:
+                                    player.download_magnet_background(
+                                        n_magnet,
+                                        file_index=best_torrent.get("file_index"),
+                                        item_id=self.movie_stub.get("id"),
+                                        media_type=self.media_type,
+                                        season=next_ep.get("season"),
+                                        episode=next_ep.get("episode")
+                                    )
                                 
                                 def trigger_next():
                                     self.selected_season = next_ep.get("season")
