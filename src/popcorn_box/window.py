@@ -245,6 +245,7 @@ class MovieDetailsPage(Gtk.Overlay):
         
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_vexpand(True)
+        scrolled.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         scrolled.set_child(self.content_box)
         scrolled.add_css_class("transparent")
         
@@ -298,6 +299,7 @@ class MovieDetailsPage(Gtk.Overlay):
         
         self.meta_label = Gtk.Label(label="██████████████████")
         self.meta_label.set_halign(Gtk.Align.START)
+        self.meta_label.set_wrap(True)
         self.meta_label.set_css_classes(['dim-label', 'skeleton'])
         meta_hbox.append(self.meta_label)
         
