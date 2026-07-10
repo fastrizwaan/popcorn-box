@@ -317,9 +317,9 @@ class MovieDetailsPage(Gtk.Overlay):
             self.detail_seen_btn.set_label("👁 Seen")
         
     def build_ui(self, details, torrents=None):
-        self.self.info_vbox.remove(self.spinner)
+        self.info_vbox.remove(self.spinner)
         if not details:
-            self.self.info_vbox.append(Gtk.Label(label="Failed to load details."))
+            self.info_vbox.append(Gtk.Label(label="Failed to load details."))
             return
             
         if details.get("background"):
@@ -537,11 +537,11 @@ class MovieDetailsPage(Gtk.Overlay):
         
         if self.media_type in ["series", "anime"] and details.get("videos"):
             self.quality_button_box.set_margin_top(12)
-            self.self.info_vbox.append(self.row2_box)
+            self.info_vbox.append(self.row2_box)
         else:
             self.quality_button_box.set_margin_top(16)
             
-        self.self.info_vbox.append(self.quality_button_box)
+        self.info_vbox.append(self.quality_button_box)
         
         # Row 3: Dropdown
         self.row3_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -560,7 +560,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.file_dropdown.connect("notify::selected", on_dropdown_changed)
         self.row3_box.append(self.file_dropdown)
         
-        self.self.info_vbox.append(self.row3_box)
+        self.info_vbox.append(self.row3_box)
         
         # Row 4: Watch/Download/Subtitle buttons
         self.row4_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
@@ -595,8 +595,8 @@ class MovieDetailsPage(Gtk.Overlay):
         self.download_sub_btn.connect("clicked", self.on_download_sub_clicked)
         self.row4_box.append(self.download_sub_btn)
         
-        self.self.info_vbox.append(self.row4_box)
-        self.self.info_vbox.append(self.progress_label)
+        self.info_vbox.append(self.row4_box)
+        self.info_vbox.append(self.progress_label)
         
         if self.media_type != "series":
             self.fetch_torrents_async()
