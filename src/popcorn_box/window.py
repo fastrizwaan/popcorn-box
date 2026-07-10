@@ -405,7 +405,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.row4_box.set_margin_top(12)
         
         self.watch_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        self.watch_box.set_css_classes(['linked', 'pill'])
+        self.watch_box.set_css_classes(['linked'])
         
         self.watch_btn = Gtk.Button(label="WATCH IT NOW")
         self.watch_btn.set_css_classes(['suggested-action'])
@@ -413,7 +413,7 @@ class MovieDetailsPage(Gtk.Overlay):
         self.watch_btn.connect("clicked", self.on_watch_clicked)
         self.watch_box.append(self.watch_btn)
         
-        self.watch_menu_btn = Gtk.MenuButton()
+        self.watch_menu_btn = Gtk.Button()
         self.watch_menu_btn.set_icon_name("pan-down-symbolic")
         self.watch_menu_btn.set_css_classes(['suggested-action'])
         
@@ -444,7 +444,8 @@ class MovieDetailsPage(Gtk.Overlay):
         watch_popover_box.append(restart_btn)
         
         watch_popover.set_child(watch_popover_box)
-        self.watch_menu_btn.set_popover(watch_popover)
+        watch_popover.set_parent(self.watch_menu_btn)
+        self.watch_menu_btn.connect("clicked", lambda btn: watch_popover.popup())
         self.watch_menu_btn.set_visible(False)
         self.watch_box.append(self.watch_menu_btn)
         
@@ -723,14 +724,14 @@ class MovieDetailsPage(Gtk.Overlay):
         if active_engine or has_progress:
             self.watch_btn.set_label("▶ Continue Watching")
             self.watch_menu_btn.set_visible(True)
-            self.watch_box.set_css_classes(['linked', 'pill'])
+            self.watch_box.set_css_classes(['linked'])
             self.watch_btn.set_css_classes(['suggested-action'])
             if hasattr(self, 'stop_btn'): self.stop_btn.set_visible(bool(active_engine))
             self._is_continuing = True
         else:
             self.watch_btn.set_label("WATCH IT NOW")
             self.watch_menu_btn.set_visible(False)
-            self.watch_box.set_css_classes(['linked', 'pill'])
+            self.watch_box.set_css_classes(['linked'])
             self.watch_btn.set_css_classes(['suggested-action'])
             if hasattr(self, 'stop_btn'): self.stop_btn.set_visible(False)
             self._is_continuing = False
