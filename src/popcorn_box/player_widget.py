@@ -131,6 +131,7 @@ class PlayerWidget(Gtk.Box):
             subs_fallback="yes",
             input_default_bindings=True,
             input_vo_keyboard=True,
+            osd_font_size=28,
         )
 
         self.gl_area.connect("realize",  self._on_realize)
@@ -227,13 +228,8 @@ class PlayerWidget(Gtk.Box):
     def _update_mpv_osd(self):
         if not HAS_MPV or not hasattr(self, 'mpv') or not self.mpv:
             return
-        if self.back_btn.get_visible():
-            parts = []
-            if self._current_media_title:
-                parts.append(self._current_media_title)
-            if self._current_info_text:
-                parts.append(self._current_info_text)
-            self.mpv.osd_msg1 = "\n".join(parts)
+        if self.back_btn.get_visible() and self._current_info_text:
+            self.mpv.osd_msg1 = self._current_info_text
         else:
             self.mpv.osd_msg1 = ""
 
@@ -366,6 +362,10 @@ class PlayerWidget(Gtk.Box):
             # Normalize series titles
             title = re.sub(r'\s*-\s*Season\s*(\d+),\s*Ep\s*(\d+)', r' Season \1 - Episode \2', title)
         self._current_media_title = title or ""
+        
+        if HAS_MPV and hasattr(self, 'mpv') and self.mpv:
+            self.mpv.force_media_title = self._current_media_title
+            
         self._update_mpv_osd()
 
     # ------------------------------------------------------------------
