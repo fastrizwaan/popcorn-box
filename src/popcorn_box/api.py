@@ -65,7 +65,7 @@ def fetch_genre_counts(media_type="movie"):
     return {}
 
 def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalog_url=None, limit=50, page=1, cache_only=False):
-    c_type = "series" if media_type in ["series", "anime"] else "movie"
+    c_type = "series" if media_type in ["series", "anime", "tv"] else "movie"
     skip = (page - 1) * 100
 
     if query:
@@ -169,7 +169,7 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
     return []
 
 def fetch_movie_details(imdb_id, media_type="movie"):
-    c_type = "series" if media_type in ["series", "anime"] else "movie"
+    c_type = "series" if media_type in ["series", "anime", "tv"] else "movie"
     
     for addon in database.get_addons():
         if not addon.get("enabled", True): continue
@@ -277,7 +277,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     if not imdb_id:
         return []
         
-    actual_media = "series" if media_type in ["series", "anime"] else media_type
+    actual_media = "series" if media_type in ["series", "anime", "tv"] else media_type
     
     addons = [a for a in database.get_addons() if a.get("enabled", True)]
     if not addons:
@@ -440,7 +440,7 @@ def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
     if not imdb_id:
         return []
         
-    actual_media = "series" if media_type in ["series", "anime"] else media_type
+    actual_media = "series" if media_type in ["series", "anime", "tv"] else media_type
     if actual_media == "series" and season is not None and episode is not None:
         url = f"https://opensubtitles-v3.strem.io/subtitles/series/{imdb_id}:{season}:{episode}.json"
     else:

@@ -875,11 +875,15 @@ class MovieDetailsPage(Gtk.Overlay):
         self.quality_buttons = []
         self.current_t_list = []
         
-        def on_quality_btn_clicked(btn, t_list):
+        def on_quality_btn_clicked(btn, t_list, q_label_passed=None):
             for b in self.quality_buttons:
                 b.set_css_classes(['pill'])
             btn.set_css_classes(['pill', 'suggested-action'])
             
+            if q_label_passed:
+                from . import database
+                database.set_setting("last_quality", q_label_passed)
+                
             self.current_t_list = t_list
             self.selected_torrent = t_list[0]
             if self.selected_torrent.get("is_http"):
@@ -916,11 +920,15 @@ class MovieDetailsPage(Gtk.Overlay):
             if t_list:
                 btn = Gtk.Button(label=q_label)
                 btn.set_css_classes(['pill'])
-                btn.connect("clicked", on_quality_btn_clicked, t_list)
+                btn.connect("clicked", lambda b, tl=t_list, ql=q_label: on_quality_btn_clicked(b, tl, ql))
                 self.quality_buttons.append(btn)
                 self.quality_button_box.append(btn)
                 
                 cur_priority = priority.get(q_label, 99)
+                from . import database
+                last_q = database.get_setting("last_quality")
+                if last_q == q_label:
+                    cur_priority = 0
                 if saved_stream_q_label == q_label:
                     cur_priority = -1
                     
@@ -930,7 +938,7 @@ class MovieDetailsPage(Gtk.Overlay):
                     default_t_list = t_list
                     
         if default_btn:
-            on_quality_btn_clicked(default_btn, default_t_list)
+            on_quality_btn_clicked(default_btn, default_t_list, None)
             
     def on_download_clicked(self, btn):
         if hasattr(self, 'file_dropdown') and hasattr(self, 'current_t_list') and self.current_t_list:
