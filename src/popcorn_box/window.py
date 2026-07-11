@@ -1136,6 +1136,42 @@ class MovieDetailsPage(Gtk.Overlay):
             except ValueError:
                 pass
                 
+    def advance_ui_to_next_episode(self):
+        if self.media_type not in ["series", "anime"]:
+            return
+            
+        current_idx = -1
+        for i, ep in enumerate(self.current_episodes):
+            if ep.get("episode") == self.selected_episode:
+                current_idx = i
+                break
+                
+        next_ep = None
+        next_season = self.selected_season
+        if current_idx >= 0 and current_idx + 1 < len(self.current_episodes):
+            next_ep = self.current_episodes[current_idx + 1]
+        elif current_idx >= 0:
+            videos = self.movie_stub.get("videos", [])
+            next_season_eps = [v for v in videos if v.get("season") == self.selected_season + 1]
+            if next_season_eps:
+                next_season_eps.sort(key=lambda x: x.get("episode", 0))
+                next_ep = next_season_eps[0]
+                next_season = self.selected_season + 1
+                
+        if next_ep and hasattr(self, 'season_dropdown') and hasattr(self, 'episode_dropdown'):
+            videos = self.movie_stub.get("videos", [])
+            seasons = sorted(list(set([v.get("season", 1) for v in videos])))
+            
+            s_idx = seasons.index(next_season) if next_season in seasons else 0
+            if self.season_dropdown.get_selected() != s_idx:
+                self._pending_e = next_ep.get("episode")
+                self.season_dropdown.set_selected(s_idx)
+            else:
+                for i, ep in enumerate(self.current_episodes):
+                    if ep.get("episode") == next_ep.get("episode"):
+                        self.episode_dropdown.set_selected(i)
+                        break
+
     def _start_streaming(self, magnet, file_index):
         """Send the stream request to the global player and switch tabs."""
         if not magnet:
@@ -1157,6 +1193,7 @@ class MovieDetailsPage(Gtk.Overlay):
         widget = self.get_root()
         if hasattr(widget, 'global_player'):
             widget.global_player.player_widget.on_playback_failed = self.on_stream_failed
+            widget.global_player.player_widget.on_video_finished = self.advance_ui_to_next_episode
         
         # Mark as watched when playback starts
         watch_data = {
@@ -2033,7 +2070,13 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         key_ctrl.connect("key-pressed", self._on_global_key_pressed)
         self.add_controller(key_ctrl)
         
-        player.init_background_downloads()
+        def delayed_background_init():
+            import time
+            time.sleep(2.0)
+            player.init_background_downloads()
+            
+        import threading
+        threading.Thread(target=delayed_background_init, daemon=True).start()
         
 
         self.current_media_type = "movie"

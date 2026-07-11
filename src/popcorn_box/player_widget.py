@@ -176,8 +176,7 @@ class PlayerWidget(Gtk.Box):
             opengl_init_params={"get_proc_address": proc_addr_fn},
         )
         self.mpv_ctx.update_cb = lambda: GLib.idle_add(
-            self.gl_area.queue_render,
-            priority=GLib.PRIORITY_HIGH_IDLE,
+            self.gl_area.queue_render
         )
         self.fbo = ctypes.c_int()
 
@@ -242,10 +241,12 @@ class PlayerWidget(Gtk.Box):
         self.mpv.force_media_title = bottom_text
 
     def _hide_back_btn(self):
-        self.back_btn.set_visible(False)
-        if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(False)
-        self._update_mpv_osd()
-        self.set_cursor(Gdk.Cursor.new_from_name("none"))
+        def hide_ui():
+            self.back_btn.set_visible(False)
+            if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(False)
+            self._update_mpv_osd()
+            self.set_cursor(Gdk.Cursor.new_from_name("none"))
+        GLib.idle_add(hide_ui)
         self._hide_timeout_id = None
         return False
 
@@ -263,10 +264,13 @@ class PlayerWidget(Gtk.Box):
             except Exception:
                 pass
                 
-        self.set_cursor(Gdk.Cursor.new_from_name("default"))
-        self.back_btn.set_visible(True)
-        if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(True)
-        self._update_mpv_osd()
+        if not self.back_btn.get_visible():
+            def show_ui():
+                self.set_cursor(Gdk.Cursor.new_from_name("default"))
+                self.back_btn.set_visible(True)
+                if hasattr(self, 'audio_norm_btn'): self.audio_norm_btn.set_visible(True)
+                self._update_mpv_osd()
+            GLib.idle_add(show_ui)
         if self._hide_timeout_id:
             GLib.source_remove(self._hide_timeout_id)
         self._hide_timeout_id = GLib.timeout_add(2000, self._hide_back_btn)
@@ -381,6 +385,7 @@ class PlayerWidget(Gtk.Box):
     def _on_time_pos(self, name, value):
         if value and value > 0:
             self._playback_started = True
+            self._last_time_pos = value
             
         if not value or not self._current_duration:
             return
@@ -417,6 +422,20 @@ class PlayerWidget(Gtk.Box):
             GLib.idle_add(self.on_play_next)
 
     def handle_eof_or_idle(self):
+        try:
+            dur = getattr(self, '_current_duration', 0) or 0
+            pos = getattr(self, '_last_time_pos', 0) or 0
+            if dur > 0 and (dur - pos) > 60:
+                print(f"Premature EOF! Pos {pos} Dur {dur}. Aborting auto-play.")
+                if self.on_close_callback:
+                    GLib.idle_add(self.on_close_callback)
+                return
+        except Exception as e:
+            print(f"Error checking position on EOF: {e}")
+            
+        if hasattr(self, 'on_video_finished') and callable(self.on_video_finished):
+            GLib.idle_add(self.on_video_finished)
+            
         if getattr(self, 'fetching_next_episode', False):
             print("EOF reached but still fetching next episode torrents. Waiting...")
             self._waiting_at_eof = True
