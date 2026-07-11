@@ -132,6 +132,8 @@ class PlayerWidget(Gtk.Box):
             input_default_bindings=True,
             input_vo_keyboard=True,
             osd_font_size=28,
+            osd_align_x="center",
+            osd_align_y="top",
         )
 
         self.gl_area.connect("realize",  self._on_realize)
