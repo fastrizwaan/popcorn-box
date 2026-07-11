@@ -71,6 +71,8 @@ def stop_engine_explicit(info_hash):
     database.set_download_paused(info_hash, True)
 
 def exit_player():
+    from . import database
+    database.flush_progress()
     with _engines_lock:
         for info_hash, engine in _engines.items():
             try:

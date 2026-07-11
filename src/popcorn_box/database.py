@@ -249,13 +249,35 @@ def set_setting(key, value):
 
 # --- Progress ---
 
+_progress_buffer = {}
+_progress_last_flush = 0
+_PROGRESS_FLUSH_INTERVAL = 10  # seconds
+
 def save_progress(key, position):
+    """Buffer progress in memory, flush to disk at most every 10 seconds."""
+    global _progress_last_flush
+    import time as _time
+    _progress_buffer[key] = position
+    now = _time.time()
+    if now - _progress_last_flush >= _PROGRESS_FLUSH_INTERVAL:
+        flush_progress()
+
+def flush_progress():
+    """Write all buffered progress to disk immediately."""
+    global _progress_last_flush
+    import time as _time
+    if not _progress_buffer:
+        return
     db = _read_db()
     progress = db.setdefault("progress", {})
-    progress[key] = position
+    progress.update(_progress_buffer)
     _write_db(db)
+    _progress_last_flush = _time.time()
 
 def get_progress(key):
+    # Check in-memory buffer first (most recent), then disk
+    if key in _progress_buffer:
+        return _progress_buffer[key]
     return _read_db().get("progress", {}).get(key, 0)
 
 

@@ -16,7 +16,7 @@ else:
     CACHE_DIR = os.path.expanduser('~/.var/app/io.github.fastrizwaan.PopcornBox/cache/popcorn-box/api')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
-def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
+def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False, timeout=5):
     url_hash = hashlib.md5(url.encode()).hexdigest()
     cache_file = os.path.join(CACHE_DIR, url_hash)
     
@@ -39,7 +39,7 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
     # Fetch from network
     try:
         req = urllib.request.Request(url, headers=headers)
-        with urllib.request.urlopen(req, timeout=5) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:
             data_str = response.read().decode('utf-8')
         data = json.loads(data_str)
         # Save to cache
@@ -54,11 +54,11 @@ def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False):
         
     # Return stale cache if network fails
     if os.path.exists(cache_file):
-            try:
-                with open(cache_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logging.debug(f"Failed to read stale cache: {e}")
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            logging.debug(f"Failed to read stale cache: {e}")
     return None
 
 def fetch_genre_counts(media_type="movie"):
@@ -103,7 +103,7 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
             addon_items = []
             for cat_id in search_catalogs:
                 search_url = f"{base_url}catalog/{c_type}/{cat_id}/search={urllib.parse.quote(query)}.json"
-                data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only)
+                data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only, timeout=3)
                 if data and "metas" in data:
                     addon_items.extend(data["metas"])
             return addon_items

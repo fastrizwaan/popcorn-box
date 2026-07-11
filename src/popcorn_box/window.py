@@ -32,7 +32,7 @@ else:
 os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
 from concurrent.futures import ThreadPoolExecutor
-_image_pool = ThreadPoolExecutor(max_workers=4)
+_image_pool = ThreadPoolExecutor(max_workers=8)
 
 def load_image_into_picture(url, picture_widget, width=None, height=None):
     if not url: return
@@ -49,15 +49,20 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
             else:
                 req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
                 with urllib.request.urlopen(req, timeout=5) as response:
+                    content_type = response.headers.get('Content-Type', '')
                     data = response.read()
-                with open(cache_file, 'wb') as f:
-                    f.write(data)
+                    # Only cache actual image data, not HTML error pages
+                    if 'image' in content_type and data:
+                        with open(cache_file, 'wb') as f:
+                            f.write(data)
+                    elif not data:
+                        return
             
             if not data:
                 return
                 
             # Decode pixbuf in worker thread — keeps glycin temp files
-            # bounded to the pool size (4 max) instead of hundreds on main thread
+            # bounded to the pool size (8 max) instead of hundreds on main thread
             loader = GdkPixbuf.PixbufLoader()
             pixbuf = None
             try:
@@ -69,6 +74,12 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
                 # MUST close loader to prevent leaking the glycin sub-process and FDs.
                 try:
                     loader.close()
+                except Exception:
+                    pass
+                # Delete corrupt cache file so it gets re-fetched next time
+                try:
+                    if os.path.exists(cache_file):
+                        os.remove(cache_file)
                 except Exception:
                     pass
                 print(f"Failed to decode image {url}: {e}")
@@ -85,6 +96,8 @@ def load_image_into_picture(url, picture_widget, width=None, height=None):
 def _apply_pixbuf(picture_widget, pixbuf):
     """Apply a pre-decoded pixbuf to a widget. Runs on main GTK thread."""
     try:
+        if picture_widget.get_parent() is None:
+            return False  # Widget was removed from tree, skip
         picture_widget.set_can_shrink(True)
         texture = Gdk.Texture.new_for_pixbuf(pixbuf)
         picture_widget.set_paintable(texture)
@@ -2831,10 +2844,16 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         
         if getattr(self, '_search_timeout_id', None):
             GLib.source_remove(self._search_timeout_id)
+        
+        # Increment search generation so stale results are discarded
+        if not hasattr(self, '_search_generation'):
+            self._search_generation = 0
+        self._search_generation += 1
+        gen = self._search_generation
             
         def trigger_search():
             self._search_timeout_id = None
-            if entry.get_text() == query:
+            if entry.get_text() == query and getattr(self, '_search_generation', 0) == gen:
                 self.load_category_movies(active_page, query=query, page=1)
             return False
             
