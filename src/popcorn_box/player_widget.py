@@ -228,10 +228,16 @@ class PlayerWidget(Gtk.Box):
     def _update_mpv_osd(self):
         if not HAS_MPV or not hasattr(self, 'mpv') or not self.mpv:
             return
-        if self.back_btn.get_visible() and getattr(self, '_current_info_text', None):
-            self.mpv.osd_msg1 = f"{{\\fs22}}{self._current_info_text}"
+            
+        # Top-left OSD: Title
+        if self.back_btn.get_visible() and self._current_media_title:
+            self.mpv.osd_msg1 = self._current_media_title
         else:
             self.mpv.osd_msg1 = ""
+            
+        # Bottom OSC: Download Statistics (fallback to title if empty)
+        bottom_text = self._current_info_text or self._current_media_title or ""
+        self.mpv.force_media_title = bottom_text
 
     def _hide_back_btn(self):
         self.back_btn.set_visible(False)
@@ -362,10 +368,6 @@ class PlayerWidget(Gtk.Box):
             # Normalize series titles
             title = re.sub(r'\s*-\s*Season\s*(\d+),\s*Ep\s*(\d+)', r' Season \1 - Episode \2', title)
         self._current_media_title = title or ""
-        
-        if HAS_MPV and hasattr(self, 'mpv') and self.mpv:
-            self.mpv.force_media_title = self._current_media_title
-            
         self._update_mpv_osd()
 
     # ------------------------------------------------------------------
@@ -544,15 +546,11 @@ class PlayerWidget(Gtk.Box):
             start_pos = database.get_progress(key)
 
         if HAS_MPV:
-            title_opt = getattr(self, '_current_media_title', "")
-            if not title_opt:
-                title_opt = "PopcornBox Media"
-                
             if start_pos >= 5:
                 print(f"Resuming playback at position {start_pos}s")
-                self.mpv.loadfile(url, force_media_title=title_opt, start=str(int(start_pos)))
+                self.mpv.loadfile(url, start=str(int(start_pos)))
             else:
-                self.mpv.loadfile(url, force_media_title=title_opt)
+                self.mpv.loadfile(url)
             if sub_file:
                 def add_sub(retries=30):
                     if not HAS_MPV or retries <= 0: return False
