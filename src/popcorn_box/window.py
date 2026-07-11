@@ -2828,7 +2828,17 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         query = entry.get_text()
         self.current_query = query
         active_page = self.category_pages[self.current_media_type]
-        self.load_category_movies(active_page, query=query, page=1)
+        
+        if getattr(self, '_search_timeout_id', None):
+            GLib.source_remove(self._search_timeout_id)
+            
+        def trigger_search():
+            self._search_timeout_id = None
+            if entry.get_text() == query:
+                self.load_category_movies(active_page, query=query, page=1)
+            return False
+            
+        self._search_timeout_id = GLib.timeout_add(500, trigger_search)
         
     def show_movie_details(self, movie):
         imdb_id = movie.get("imdb_id") or movie.get("id")
