@@ -1217,13 +1217,31 @@ class MovieDetailsPage(Gtk.Overlay):
                                 filtered_torrents = torrents # Fallback if none found
                             
                             best_torrent = None
-                            for p_q in ["1080p", "720p", "4K", "480p"]:
+                            
+                            # Prioritize the same addon the user originally selected
+                            target_addon = None
+                            if hasattr(self, 'selected_torrent') and self.selected_torrent:
+                                target_addon = self.selected_torrent.get("addon_name")
+                                if not target_addon and self.selected_torrent.get("addon_names"):
+                                    target_addon = self.selected_torrent["addon_names"][0]
+                                    
+                            if target_addon:
                                 for t in filtered_torrents:
-                                    if t.get("quality") == p_q:
+                                    t_addons = t.get("addon_names", [])
+                                    if not t_addons and t.get("addon_name"):
+                                        t_addons = [t.get("addon_name")]
+                                    if target_addon in t_addons:
                                         best_torrent = t
                                         break
-                                if best_torrent:
-                                    break
+                                        
+                            if not best_torrent:
+                                for p_q in ["1080p", "720p", "4K", "480p"]:
+                                    for t in filtered_torrents:
+                                        if t.get("quality") == p_q:
+                                            best_torrent = t
+                                            break
+                                    if best_torrent:
+                                        break
                             
                             if not best_torrent:
                                 best_torrent = filtered_torrents[0]
@@ -1263,6 +1281,19 @@ class MovieDetailsPage(Gtk.Overlay):
                                     )
                                 
                                 def trigger_next():
+                                    if self.selected_season != next_ep.get("season"):
+                                        videos = self.movie_stub.get("videos", [])
+                                        eps = [v for v in videos if v.get("season") == next_ep.get("season")]
+                                        unique_eps = []
+                                        seen_eps = set()
+                                        for e in eps:
+                                            ep_num = e.get("episode", 0)
+                                            if ep_num not in seen_eps:
+                                                seen_eps.add(ep_num)
+                                                unique_eps.append(e)
+                                        unique_eps.sort(key=lambda x: x.get("episode", 0))
+                                        self.current_episodes = unique_eps
+                                        
                                     self.selected_season = next_ep.get("season")
                                     self.selected_episode = next_ep.get("episode")
                                     self._start_streaming(n_magnet, best_torrent.get("file_index"))
