@@ -97,7 +97,7 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
                 pass
                 
             if not search_catalogs:
-                search_catalogs = ["top"]
+                continue
                 
             for cat_id in search_catalogs:
                 search_url = f"{base_url}catalog/{c_type}/{cat_id}/search={urllib.parse.quote(query)}.json"
