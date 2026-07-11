@@ -69,13 +69,14 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
     skip = (page - 1) * 100
 
     if query:
-        # Search all enabled addons for a search catalog
+        import concurrent.futures
         items = []
         seen_ids = set()
-        for addon in database.get_addons():
-            if not addon.get("enabled", True): continue
+        
+        def fetch_addon_search(addon):
+            if not addon.get("enabled", True): return []
             m_url = addon.get("manifest_url", "")
-            if not m_url or m_url.startswith("builtin:"): continue
+            if not m_url or m_url.startswith("builtin:"): return []
             
             base_url = m_url.rsplit("manifest.json", 1)[0]
             if not base_url.endswith("/"): base_url += "/"
@@ -97,14 +98,22 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
                 pass
                 
             if not search_catalogs:
-                continue
+                return []
                 
+            addon_items = []
             for cat_id in search_catalogs:
                 search_url = f"{base_url}catalog/{c_type}/{cat_id}/search={urllib.parse.quote(query)}.json"
                 data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only)
-                
                 if data and "metas" in data:
-                    for m in data["metas"]:
+                    addon_items.extend(data["metas"])
+            return addon_items
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            future_to_addon = {executor.submit(fetch_addon_search, addon): addon for addon in database.get_addons()}
+            for future in concurrent.futures.as_completed(future_to_addon):
+                try:
+                    addon_items = future.result()
+                    for m in addon_items:
                         imdb_id = m.get("imdb_id") or m.get("id")
                         if imdb_id and imdb_id not in seen_ids:
                             seen_ids.add(imdb_id)
@@ -115,6 +124,9 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
                                 "medium_cover_image": m.get("poster", ""),
                                 "type": media_type
                             })
+                except Exception:
+                    pass
+                    
         return items
 
     if catalog_url:
