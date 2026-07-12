@@ -12,6 +12,7 @@
     "--device=dri",
     "--filesystem=xdg-run/tmp:rw",
     "--socket=pulseaudio",
+    "--talk-name=org.freedesktop.Flatpak",
     "--talk-name=org.freedesktop.ScreenSaver",
     "--talk-name=org.gnome.SessionManager"
   ],

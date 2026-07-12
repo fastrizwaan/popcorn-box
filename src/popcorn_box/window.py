@@ -1828,7 +1828,10 @@ class DownloadItemWidget(Gtk.Box):
         path = os.path.join(player.DOWNLOAD_BASE, self.info_hash)
         os.makedirs(path, exist_ok=True)
         import subprocess
-        subprocess.Popen(['xdg-open', path])
+        if os.environ.get("FLATPAK_ID"):
+            subprocess.Popen(['flatpak-spawn', '--host', 'xdg-open', path])
+        else:
+            subprocess.Popen(['xdg-open', path])
             
     def on_copy_clicked(self, btn):
         if hasattr(self, 'popover'): self.popover.popdown()
