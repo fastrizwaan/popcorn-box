@@ -132,6 +132,7 @@ class PlayerWidget(Gtk.Box):
             loglevel="warn",
             hwdec="auto",
             slang="en,eng,English",
+            alang="en,eng,English",
             subs_fallback="yes",
             input_default_bindings=True,
             input_vo_keyboard=True,

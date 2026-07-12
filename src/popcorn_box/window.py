@@ -508,7 +508,7 @@ class MovieDetailsPage(Gtk.Overlay):
 
     def load_details_async(self):
         def fetch():
-            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type)
+            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type, title=self.movie_stub.get("title"))
             GLib.idle_add(self.build_ui, details)
         threading.Thread(target=fetch, daemon=True).start()
         
@@ -548,6 +548,11 @@ class MovieDetailsPage(Gtk.Overlay):
             self.title_label.remove_css_class('skeleton')
             return
             
+        # Update the local stub ID so that torrent scrapers use the resolved IMDB ID instead of the TMDB ID
+        if details.get("id") and self.movie_stub.get("id") != details.get("id"):
+            self.movie_stub["id"] = details.get("id")
+            
+
         if details.get("background"):
             load_image_into_picture(details.get("background"), self.backdrop_pic)
             

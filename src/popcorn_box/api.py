@@ -168,9 +168,57 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
 
     return []
 
-def fetch_movie_details(imdb_id, media_type="movie"):
+def fetch_movie_details(imdb_id, media_type="movie", title=None):
     c_type = "series" if media_type in ["series", "anime", "tv"] else "movie"
     
+    if str(imdb_id).startswith("tmdb:"):
+        resolved_id = None
+        try:
+            tmdb_api_key = None
+            import re
+            for addon in database.get_addons():
+                m_url = addon.get("manifest_url", "")
+                if "tmdb" in m_url.lower():
+                    match = re.search(r'/([a-fA-F0-9]{32})/', m_url)
+                    if match:
+                        tmdb_api_key = match.group(1)
+                        break
+                        
+            if tmdb_api_key:
+                tmdb_id = str(imdb_id).split(":")[-1]
+                tmdb_type = "tv" if c_type == "series" else "movie"
+                tmdb_url = f"https://api.themoviedb.org/3/{tmdb_type}/{tmdb_id}?api_key={tmdb_api_key}&append_to_response=external_ids"
+                
+                tmdb_data = _get_cached_request(tmdb_url, max_age_hours=168)
+                if tmdb_data and "external_ids" in tmdb_data:
+                    resolved_id = tmdb_data["external_ids"].get("imdb_id")
+        except Exception:
+            pass
+            
+        if not resolved_id and title and title != "Loading...":
+            try:
+                import urllib.parse
+                search_url = f"https://v3-cinemeta.strem.io/catalog/{c_type}/top/search={urllib.parse.quote(title)}.json"
+                search_data = _get_cached_request(search_url, max_age_hours=168)
+                if search_data and "metas" in search_data:
+                    for m in search_data["metas"]:
+                        m_id = m.get("imdb_id") or m.get("id", "")
+                        if str(m_id).startswith("tt") and str(m.get("name", "")).lower() == str(title).lower():
+                            resolved_id = m_id
+                            break
+                    if not resolved_id:
+                        for m in search_data["metas"]:
+                            m_id = m.get("imdb_id") or m.get("id", "")
+                            if str(m_id).startswith("tt"):
+                                resolved_id = m_id
+                                break
+            except Exception:
+                pass
+                
+        if resolved_id:
+            imdb_id = resolved_id
+
+
     for addon in database.get_addons():
         if not addon.get("enabled", True): continue
         m_url = addon.get("manifest_url", "")
@@ -213,8 +261,29 @@ def fetch_movie_details(imdb_id, media_type="movie"):
                     "overview": v.get("overview", "")
                 })
             
+            true_id = cm.get("imdb_id") or imdb_id
+            if str(true_id).startswith("tmdb:"):
+                title = cm.get("name")
+                if title:
+                    try:
+                        import urllib.parse
+                        search_url = f"https://v3-cinemeta.strem.io/catalog/{c_type}/top/search={urllib.parse.quote(title)}.json"
+                        search_data = _get_cached_request(search_url, max_age_hours=168)
+                        if search_data and "metas" in search_data:
+                            for m in search_data["metas"]:
+                                m_id = m.get("imdb_id") or m.get("id", "")
+                                if str(m_id).startswith("tt") and str(m.get("name", "")).lower() == str(title).lower():
+                                    if str(m.get("releaseInfo", "")).split("-")[0] == str(cm.get("releaseInfo", "")).split("-")[0]:
+                                        true_id = m_id
+                                        break
+                                    elif not cm.get("releaseInfo"):
+                                        true_id = m_id
+                                        break
+                    except Exception:
+                        pass
+                        
             return {
-                "id": imdb_id,
+                "id": true_id,
                 "title": cm.get("name", ""),
                 "year": str(cm.get("releaseInfo", "")).split("-")[0] if cm.get("releaseInfo") else "",
                 "medium_cover_image": cm.get("poster", ""),
