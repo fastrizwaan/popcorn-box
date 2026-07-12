@@ -28,20 +28,6 @@ DEFAULT_ADDONS = [
             {"type": "series", "id": "top", "name": "Popular"},
             {"type": "series", "id": "imdbRating", "name": "IMDb Rating"}
         ]
-    },
-    {
-        "id": "org.stremio.tmdb",
-        "name": "The Movie Database Addon",
-        "version": "1.0.0",
-        "description": "Catalogs for Movies and Series from TMDB. Fast updates.",
-        "manifest_url": "https://tmdb-addon.strem.io/manifest.json",
-        "enabled": True,
-        "catalogs": [
-            {"type": "movie", "id": "tmdb.trending", "name": "Trending"},
-            {"type": "movie", "id": "tmdb.popular", "name": "Popular"},
-            {"type": "series", "id": "tmdb.trending", "name": "Trending"},
-            {"type": "series", "id": "tmdb.popular", "name": "Popular"}
-        ]
     }
 ]
 
