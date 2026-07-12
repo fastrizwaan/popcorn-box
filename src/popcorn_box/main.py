@@ -18,13 +18,7 @@ class PopcornBoxApp(Adw.Application):
                          flags=Gio.ApplicationFlags.NON_UNIQUE)
 
     def do_activate(self):
-        # Clean up legacy UUID-style session dirs from old versions
-        import glob, shutil
-        for d in glob.glob('/var/tmp/popcorn-box-????????'):  # old UUID format
-            try:
-                shutil.rmtree(d, ignore_errors=True)
-            except Exception:
-                pass
+        # Legacy cleanup removed as /var/tmp is no longer accessed
 
         # Force Dark Mode
         Adw.StyleManager.get_default().set_color_scheme(Adw.ColorScheme.FORCE_DARK)

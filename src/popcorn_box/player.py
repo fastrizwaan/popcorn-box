@@ -16,9 +16,9 @@ _engines_lock = threading.Lock()
 _trailer_process = None
 _trailer_lock = threading.Lock()
 
-# Persistent download dir: /var/tmp/popcorn-box/{infoHash}/
-# We keep data across sessions so resumed downloads don't waste bandwidth.
-DOWNLOAD_BASE = '/var/tmp/popcorn-box'
+import os
+DOWNLOAD_BASE = os.path.expanduser('~/io.github.fastrizwaan.PopcornBox/data/torrents')
+os.makedirs(DOWNLOAD_BASE, exist_ok=True)
 
 def stop_player(keep_downloading=False):
     """Stop the currently streaming video, unless it's fully downloaded or keep_downloading is True."""

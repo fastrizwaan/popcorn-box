@@ -1022,8 +1022,9 @@ class MovieDetailsPage(Gtk.Overlay):
             best_sub = subs[0]
             url = best_sub.get("url")
             
+            import os
             info_hash = self.selected_torrent.get("hash")
-            dest_dir = f"/var/tmp/popcorn-box/{info_hash}"
+            dest_dir = os.path.expanduser(f"~/io.github.fastrizwaan.PopcornBox/data/torrents/{info_hash}")
             
             import os.path
             import glob
