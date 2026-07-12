@@ -9,21 +9,9 @@ import logging
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from . import database
+from . import api
 
-
-EXTRA_TRACKERS = [
-    "udp://tracker.opentrackr.org:1337/announce",
-    "udp://open.stealth.si:80/announce",
-    "udp://tracker.openbittorrent.com:80/announce",
-    "udp://tracker.torrent.eu.org:451/announce",
-    "udp://exodus.desync.com:6969/announce",
-    "udp://tracker.cyberia.is:6969/announce",
-    "udp://p4p.arenabg.com:1337/announce",
-    "udp://tracker.leechers-paradise.org:6969/announce",
-    "udp://explodie.org:6969/announce",
-    "http://tracker.opentrackr.org:1337/announce",
-    "http://tracker.openbittorrent.com:80/announce",
-]
+EXTRA_TRACKERS = api.DEFAULT_TRACKERS
 
 
 def info_hash_from_magnet(magnet):

@@ -1146,19 +1146,7 @@ class MovieDetailsPage(Gtk.Overlay):
             magnet = api.build_magnet(torrent.get("hash"), self.movie_stub.get("title", ""))
             
         if magnet and magnet.startswith("magnet:?"):
-            trackers = [
-                "udp://tracker.opentrackr.org:1337/announce",
-                "udp://tracker.openbittorrent.com:80/announce",
-                "udp://tracker.torrent.eu.org:451/announce",
-                "udp://exodus.desync.com:6969/announce",
-                "udp://explodie.org:6969/announce",
-                "udp://p4p.arenabg.com:1337/announce",
-                "udp://tracker.internetwarriors.net:1337/announce",
-                "udp://tracker.cyberia.is:6969/announce",
-                "http://tracker.openbittorrent.com:80/announce",
-                "udp://open.stealth.si:80/announce"
-            ]
-            for tr in trackers:
+            for tr in api.DEFAULT_TRACKERS:
                 encoded_tr = urllib.parse.quote(tr, safe="")
                 if encoded_tr not in magnet:
                     magnet += f"&tr={encoded_tr}"
