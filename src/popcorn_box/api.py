@@ -9,8 +9,11 @@ import logging
 from . import database
 import concurrent.futures
 
-BASE_DIR = os.path.expanduser('~/io.github.fastrizwaan.PopcornBox/data')
-CACHE_DIR = os.path.join(BASE_DIR, 'cache', 'api')
+if os.environ.get("FLATPAK_ID"):
+    BASE_DIR = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "popcorn-box")
+else:
+    BASE_DIR = os.path.expanduser("~/.var/app/io.github.fastrizwaan.PopcornBox/cache/popcorn-box")
+CACHE_DIR = os.path.join(BASE_DIR, 'api')
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 def _get_cached_request(url, max_age_hours=2, headers=None, cache_only=False, timeout=5):

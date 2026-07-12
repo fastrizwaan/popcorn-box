@@ -17,7 +17,10 @@ _trailer_process = None
 _trailer_lock = threading.Lock()
 
 import os
-DOWNLOAD_BASE = os.path.expanduser('~/io.github.fastrizwaan.PopcornBox/data/torrents')
+if os.environ.get("FLATPAK_ID"):
+    DOWNLOAD_BASE = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")), "popcorn-box", "torrents")
+else:
+    DOWNLOAD_BASE = os.path.expanduser("~/.var/app/io.github.fastrizwaan.PopcornBox/data/popcorn-box/torrents")
 os.makedirs(DOWNLOAD_BASE, exist_ok=True)
 
 def stop_player(keep_downloading=False):

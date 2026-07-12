@@ -6,7 +6,13 @@ from pathlib import Path
 _db_lock = threading.RLock()
 _db_corrupted = False
 
-BASE_DIR = Path.home() / "io.github.fastrizwaan.PopcornBox" / "data"
+import os
+
+if os.environ.get("FLATPAK_ID"):
+    BASE_DIR = Path(os.environ.get("XDG_DATA_HOME", str(Path.home() / ".local/share"))) / "popcorn-box"
+else:
+    BASE_DIR = Path.home() / ".var/app/io.github.fastrizwaan.PopcornBox/data/popcorn-box"
+
 CONFIG_DIR = BASE_DIR / "config"
 os.makedirs(CONFIG_DIR, exist_ok=True)
 
