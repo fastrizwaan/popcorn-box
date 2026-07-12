@@ -13,7 +13,6 @@
     "--filesystem=xdg-run/tmp:rw",
     "--filesystem=/var/tmp:rw",
     "--socket=pulseaudio",
-    "--filesystem=xdg-config/popcorn-box:create",
     "--talk-name=org.freedesktop.ScreenSaver",
     "--talk-name=org.gnome.SessionManager"
   ],

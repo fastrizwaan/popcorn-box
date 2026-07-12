@@ -24,11 +24,8 @@ from . import player
 from .player_widget import PlayerWidget, HAS_MPV
 
 
-if os.environ.get("FLATPAK_ID"):
-    cache_dir_base = os.environ.get('XDG_CACHE_HOME', os.path.expanduser('~/.cache'))
-    IMAGE_CACHE_DIR = os.path.join(cache_dir_base, 'popcorn-box', 'images')
-else:
-    IMAGE_CACHE_DIR = os.path.expanduser('~/.var/app/io.github.fastrizwaan.PopcornBox/cache/popcorn-box/images')
+BASE_DIR = os.path.expanduser('~/io.github.fastrizwaan.PopcornBox/data')
+IMAGE_CACHE_DIR = os.path.join(BASE_DIR, 'cache', 'images')
 os.makedirs(IMAGE_CACHE_DIR, exist_ok=True)
 
 from concurrent.futures import ThreadPoolExecutor
