@@ -923,9 +923,11 @@ class MovieDetailsPage(Gtk.Overlay):
             if self.selected_torrent.get("is_http"):
                 self.download_btn.set_sensitive(False)
                 self.download_btn.set_tooltip_text("Direct streams cannot be downloaded.")
+                if hasattr(self, 'prefetch_check'): self.prefetch_check.set_visible(False)
             else:
                 self.download_btn.set_sensitive(True)
                 self.download_btn.set_tooltip_text("Download Torrent")
+                if hasattr(self, 'prefetch_check'): self.prefetch_check.set_visible(True)
                 
             strings = []
             for t in t_list:
@@ -1280,16 +1282,6 @@ class MovieDetailsPage(Gtk.Overlay):
                         widget.global_player.player_widget.fetching_next_episode = True
                     
                     is_http_current = magnet.startswith("http://") or magnet.startswith("https://")
-                    
-                    should_prefetch = database.get_setting("prefetch_next", True)
-                    if not should_prefetch:
-                        def clear_fetching():
-                            try:
-                                root = self.get_root()
-                                if hasattr(root, 'global_player'):
-                                    root.global_player.player_widget.fetching_next_episode = False
-                            except Exception: pass
-                        GLib.idle_add(clear_fetching)
                         
                     # Torrents for series are not embedded in the initial API response, fetch them in background!
                     import threading
@@ -1362,6 +1354,12 @@ class MovieDetailsPage(Gtk.Overlay):
                                             break
                                     if best_torrent: break
                                     
+                            if not best_torrent and target_addon:
+                                for t in filtered_torrents:
+                                    if addon_matches(t, target_addon):
+                                        best_torrent = t
+                                        break
+                                        
                             if not best_torrent:
                                 for p_q in qualities:
                                     for t in filtered_torrents:
@@ -1369,12 +1367,6 @@ class MovieDetailsPage(Gtk.Overlay):
                                             best_torrent = t
                                             break
                                     if best_torrent: break
-                                    
-                            if not best_torrent and target_addon:
-                                for t in filtered_torrents:
-                                    if addon_matches(t, target_addon):
-                                        best_torrent = t
-                                        break
                             
                             if not best_torrent:
                                 best_torrent = filtered_torrents[0]
@@ -1452,18 +1444,20 @@ class MovieDetailsPage(Gtk.Overlay):
                                         
                             if n_magnet:
                                 if not is_http_current:
-                                    from .libtorrent_stream import info_hash_from_magnet
-                                    next_hash = info_hash_from_magnet(n_magnet)
-                                    if next_hash:
-                                        self._pending_next_hash = next_hash
-                                    player.download_magnet_background(
-                                        n_magnet,
-                                        file_index=best_torrent.get("file_index"),
-                                        item_id=self.movie_stub.get("id"),
-                                        media_type=self.media_type,
-                                        season=next_ep.get("season"),
-                                        episode=next_ep.get("episode")
-                                    )
+                                    should_prefetch_bg = database.get_setting("prefetch_next", True)
+                                    if should_prefetch_bg:
+                                        from .libtorrent_stream import info_hash_from_magnet
+                                        next_hash = info_hash_from_magnet(n_magnet)
+                                        if next_hash:
+                                            self._pending_next_hash = next_hash
+                                        player.download_magnet_background(
+                                            n_magnet,
+                                            file_index=best_torrent.get("file_index"),
+                                            item_id=self.movie_stub.get("id"),
+                                            media_type=self.media_type,
+                                            season=next_ep.get("season"),
+                                            episode=next_ep.get("episode")
+                                        )
                                 
                                 def trigger_next():
                                     if self.selected_season != next_ep.get("season"):
@@ -1481,6 +1475,16 @@ class MovieDetailsPage(Gtk.Overlay):
                                         
                                     self.selected_season = next_ep.get("season")
                                     self.selected_episode = next_ep.get("episode")
+                                    
+                                    # Synchronously set current_t_list so instant stream failures fall back correctly!
+                                    new_list = [best_torrent] + [t for t in filtered_torrents if t != best_torrent]
+                                    self.current_t_list = new_list
+                                    self.selected_torrent = best_torrent
+                                    self._fallback_stream_idx = 0
+                                    
+                                    # Also trigger a full UI refresh in the background
+                                    GLib.idle_add(self.fetch_torrents_async)
+                                    
                                     self._start_streaming(n_magnet, best_torrent.get("file_index"))
                                     
                                 next_data = {
@@ -1519,8 +1523,7 @@ class MovieDetailsPage(Gtk.Overlay):
                                 except Exception:
                                     pass
                             GLib.idle_add(clear_fetching)
-                    if should_prefetch:
-                        threading.Thread(target=fetch_next_torrents, daemon=True).start()
+                    threading.Thread(target=fetch_next_torrents, daemon=True).start()
             
         item_id = self.movie_stub.get("id")
         
