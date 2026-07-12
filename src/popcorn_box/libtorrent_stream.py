@@ -349,6 +349,10 @@ class TorrentStreamEngine:
                         name = getattr(status, "name", "Unknown")
                         if isinstance(name, bytes):
                             name = name.decode('utf-8', 'replace')
+                            
+                        if hasattr(self, 'target') and "path" in self.target:
+                            name = os.path.basename(self.target["path"])
+                            
                         from . import database
                         database.add_download(self.info_hash, name, self.magnet_link, self.file_index, self.item_id, self.media_type, getattr(self, 'season', None), getattr(self, 'episode', None))
                         return

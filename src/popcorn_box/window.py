@@ -2020,7 +2020,7 @@ class GlobalPlayerView(Gtk.Box):
             parsed = urllib.parse.urlparse(magnet)
             qs = urllib.parse.parse_qs(parsed.query)
             dn_title = qs.get("dn", [None])[0]
-            if dn_title:
+            if dn_title and not title:
                 title = urllib.parse.unquote_plus(dn_title)
         except Exception:
             pass
