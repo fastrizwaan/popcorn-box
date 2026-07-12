@@ -184,57 +184,67 @@ def get_downloads():
     return _read_db().get("downloads", [])
 
 def add_download(info_hash, name, magnet, file_index=None, item_id=None, media_type=None, season=None, episode=None):
-    db = _read_db()
-    downloads = db.setdefault("downloads", [])
-    
-    for d in downloads:
-        if d.get("info_hash") == info_hash:
-            if file_index is not None:
-                d["file_index"] = file_index
-            if name and name != "Fetching metadata...":
-                d["name"] = name
-            if item_id is not None:
-                d["item_id"] = item_id
-            if media_type is not None:
-                d["media_type"] = media_type
-            if season is not None:
-                d["season"] = season
-            if episode is not None:
-                d["episode"] = episode
-            _write_db(db)
-            return
+    with _db_lock:
+        db = _read_db()
+        downloads = db.setdefault("downloads", [])
+        
+        for d in downloads:
+            if d.get("info_hash") == info_hash:
+                if file_index is not None:
+                    d["file_index"] = file_index
+                if name and name != "Fetching metadata...":
+                    d["name"] = name
+                if item_id is not None:
+                    d["item_id"] = item_id
+                if media_type is not None:
+                    d["media_type"] = media_type
+                if season is not None:
+                    d["season"] = season
+                if episode is not None:
+                    d["episode"] = episode
+                
+                # Move the updated download to the top of the list
+                downloads.remove(d)
+                downloads.insert(0, d)
+                
+                _write_db(db)
+                return
 
-    downloads.insert(0, {
-        "info_hash": info_hash,
-        "name": name,
-        "magnet": magnet,
-        "paused": False,
-        "file_index": file_index,
-        "item_id": item_id,
-        "media_type": media_type,
-        "season": season,
-        "episode": episode
-    })
-    _write_db(db)
+        downloads.insert(0, {
+            "info_hash": info_hash,
+            "name": name,
+            "magnet": magnet,
+            "paused": False,
+            "file_index": file_index,
+            "item_id": item_id,
+            "media_type": media_type,
+            "season": season,
+            "episode": episode
+        })
+        _write_db(db)
 
 def set_download_paused(info_hash, paused):
-    db = _read_db()
-    for d in db.get("downloads", []):
-        if d.get("info_hash") == info_hash:
-            d["paused"] = paused
-    _write_db(db)
+    with _db_lock:
+        db = _read_db()
+        for d in db.get("downloads", []):
+            if d.get("info_hash") == info_hash:
+                d["paused"] = paused
+        _write_db(db)
 
 def set_download_finished(info_hash, finished):
-    db = _read_db()
-    for d in db.get("downloads", []):
-        if d.get("info_hash") == info_hash:
-            d["finished"] = finished
-    _write_db(db)
+    with _db_lock:
+        db = _read_db()
+        for d in db.get("downloads", []):
+            if d.get("info_hash") == info_hash:
+                d["finished"] = finished
+        _write_db(db)
 
 def remove_download(info_hash):
-    db = _read_db()
-    db["downloads"] = [d for d in db.get("downloads", []) if d.get("info_hash") != info_hash]
-    _write_db(db)
+    with _db_lock:
+        db = _read_db()
+        downloads = db.get("downloads", [])
+        db["downloads"] = [d for d in downloads if d.get("info_hash") != info_hash]
+        _write_db(db)
 
 # --- Settings ---
 

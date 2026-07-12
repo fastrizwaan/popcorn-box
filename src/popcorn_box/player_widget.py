@@ -51,31 +51,35 @@ class PlayerWidget(Gtk.Box):
 
         self.overlay = Gtk.Overlay()
         self.gl_area = Gtk.GLArea()
-        self.gl_area.set_hexpand(True)
         self.gl_area.set_vexpand(True)
-        self.gl_area.set_focusable(True)
-        self.overlay.set_child(self.gl_area)
+        self.gl_area.set_hexpand(True)
+        self.gl_area.set_can_focus(True)
+        
+        self.window_handle = Gtk.WindowHandle()
+        self.window_handle.set_hexpand(True)
+        self.window_handle.set_vexpand(True)
+        self.window_handle.set_child(self.gl_area)
+        self.overlay.set_child(self.window_handle)
         self.append(self.overlay)
         
-        self.back_btn = Gtk.Button(icon_name="window-close-symbolic")
-        self.back_btn.set_halign(Gtk.Align.END)
-        self.back_btn.set_valign(Gtk.Align.START)
-        self.back_btn.set_margin_top(16)
-        self.back_btn.set_margin_end(16)
-        # Style as a semi-transparent floating circle
+        top_left_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        top_left_box.set_halign(Gtk.Align.START)
+        top_left_box.set_valign(Gtk.Align.START)
+        top_left_box.set_margin_top(16)
+        top_left_box.set_margin_start(16)
+        
+        self.back_btn = Gtk.Button(icon_name="go-previous-symbolic")
         self.back_btn.set_css_classes(["osd", "circular"])
         self.back_btn.connect("clicked", lambda x: self._do_go_back())
-        self.overlay.add_overlay(self.back_btn)
+        top_left_box.append(self.back_btn)
         
         self.audio_norm_btn = Gtk.Button(icon_name="audio-volume-high-symbolic")
-        self.audio_norm_btn.set_halign(Gtk.Align.END)
-        self.audio_norm_btn.set_valign(Gtk.Align.START)
-        self.audio_norm_btn.set_margin_top(72)
-        self.audio_norm_btn.set_margin_end(16)
         self.audio_norm_btn.set_css_classes(["osd", "circular"])
         self.audio_norm_btn.set_tooltip_text("Audio Normalization")
         self.audio_norm_btn.connect("clicked", self._toggle_audio_norm)
-        self.overlay.add_overlay(self.audio_norm_btn)
+        top_left_box.append(self.audio_norm_btn)
+        
+        self.overlay.add_overlay(top_left_box)
         
         self.info_label = Gtk.Label(label="")
         self.info_label.set_visible(False)
@@ -208,12 +212,16 @@ class PlayerWidget(Gtk.Box):
 
     def _on_render(self, area, _ctx):
         try:
+            w = int(area.get_width()  * area.props.scale_factor)
+            h = int(area.get_height() * area.props.scale_factor)
+            if w <= 0 or h <= 0:
+                return
             glGetIntegerv(GL_FRAMEBUFFER_BINDING, self.fbo)
             self.mpv_ctx.render(
                 flip_y=True,
                 opengl_fbo={
-                    "w":   int(area.get_width()  * area.props.scale_factor),
-                    "h":   int(area.get_height() * area.props.scale_factor),
+                    "w":   w,
+                    "h":   h,
                     "fbo": self.fbo.value,
                 },
             )
@@ -343,6 +351,10 @@ class PlayerWidget(Gtk.Box):
                     root.unfullscreen()
                 else:
                     root.fullscreen()
+            return True
+            
+        # Prevent opening the mpv console which traps the user because ESC is overridden
+        if keyval in (Gdk.KEY_grave, Gdk.KEY_asciitilde):
             return True
 
         # Look up in the static table first

@@ -109,6 +109,8 @@ class TorrentStreamEngine:
                 self.session.pause()
             except Exception:
                 pass
+            self.session = None
+        self.lt = None
 
     def pause(self):
         if self.handle:
@@ -480,7 +482,7 @@ class TorrentStreamEngine:
             if file_index < 0 or file_index >= len(files): return
             f = files[file_index]
             try:
-                self.handle.file_priority(file_index, 4)
+                self.handle.file_priority(file_index, 1) # Start with low priority!
             except Exception:
                 pass
             threading.Thread(target=self._additional_file_prefetcher, args=(f,), daemon=True).start()
@@ -507,9 +509,26 @@ class TorrentStreamEngine:
         start_piece = target_dict["offset"] // self._piece_length()
         end_piece = (target_dict["offset"] + front_target_size - 1) // self._piece_length()
         
+        upgraded = False
+        
         while not self.stopped.is_set():
             if self.file_index == target_dict["index"] and getattr(self, '_stream_gen', 0) > 0:
                 break # foreground player took over this exact file
+                
+            main_finished = False
+            if getattr(self, 'target', None) and self.target.get("size", 0) > 0:
+                if self._target_downloaded() >= self.target["size"]:
+                    main_finished = True
+                    
+            if main_finished and not upgraded:
+                upgraded = True
+                try:
+                    self.handle.file_priority(target_dict["index"], 4)
+                except Exception:
+                    pass
+                    
+            base_prio = 4 if main_finished else 1
+            high_prio = 7 if main_finished else 2
                 
             first_missing = -1
             for p in range(start_piece, end_piece + 1):
@@ -523,13 +542,14 @@ class TorrentStreamEngine:
                 for p in range(start_piece, end_piece + 1):
                     try:
                         if first_missing <= p <= first_missing + 3:
-                            self.handle.piece_priority(p, 7)
+                            self.handle.piece_priority(p, high_prio)
                         else:
                             if not self.handle.have_piece(p):
-                                self.handle.piece_priority(p, 4)
+                                self.handle.piece_priority(p, base_prio)
                     except Exception: pass
             else:
-                break
+                if main_finished:
+                    break
             time.sleep(1.0)
 
     def _files(self):

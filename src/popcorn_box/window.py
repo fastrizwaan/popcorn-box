@@ -386,6 +386,13 @@ class MovieDetailsPage(Gtk.Overlay):
         self.autoplay_check.connect("toggled", lambda cb: database.set_setting("autoplay_next", cb.get_active()))
         self.row2_box.append(self.autoplay_check)
         
+        self.prefetch_check = Gtk.CheckButton(label="Download Next Episode (Low Priority)")
+        self.prefetch_check.set_valign(Gtk.Align.CENTER)
+        self.prefetch_check.set_margin_start(8)
+        self.prefetch_check.set_active(database.get_setting("prefetch_next", True))
+        self.prefetch_check.connect("toggled", lambda cb: database.set_setting("prefetch_next", cb.get_active()))
+        self.row2_box.append(self.prefetch_check)
+        
         self.row2_box.set_visible(False)
         self.info_vbox.append(self.row2_box)
         
@@ -477,11 +484,14 @@ class MovieDetailsPage(Gtk.Overlay):
         self.download_btn.connect("clicked", self.on_download_clicked)
         self.row4_box.append(self.download_btn)
         
-        self.download_sub_btn = Gtk.Button(label="Subtitle (EN)")
-        self.download_sub_btn.set_css_classes(['pill'])
-        self.download_sub_btn.set_valign(Gtk.Align.CENTER)
-        self.download_sub_btn.connect("clicked", self.on_download_sub_clicked)
-        self.row4_box.append(self.download_sub_btn)
+        self.download_subs_check = Gtk.CheckButton(label="Download English Subtitles")
+        self.download_subs_check.set_valign(Gtk.Align.CENTER)
+        self.download_subs_check.set_margin_start(8)
+        self.download_subs_check.set_active(database.get_setting("download_subs", True))
+        self.download_subs_check.connect("toggled", lambda cb: database.set_setting("download_subs", cb.get_active()))
+        self.row4_box.append(self.download_subs_check)
+        
+
         
         self.row4_box.set_visible(False)
         self.info_vbox.append(self.row4_box)
@@ -698,9 +708,7 @@ class MovieDetailsPage(Gtk.Overlay):
             self.quality_button_box.set_margin_top(16)
             
         self._check_continue_watching(details.get("id"))
-        if getattr(self, 'is_resume', False):
-            self.watch_btn.set_label("Continue Episode")
-            
+        
         if self.media_type != "series":
             self.fetch_torrents_async()
 
@@ -730,24 +738,50 @@ class MovieDetailsPage(Gtk.Overlay):
                             active_engine = eng
                             break
 
-        has_progress = False
+        has_download = False
         sel_season = getattr(self, 'selected_season', None)
         sel_episode = getattr(self, 'selected_episode', None)
-        key = item_id
-        if self.media_type in ["series", "anime"] and sel_season is not None and sel_episode is not None:
-            key = f"{item_id}_S{sel_season}_E{sel_episode}"
         
         from . import database
-        if database.get_progress(key) >= 5:
-            has_progress = True
+        downloads = database.get_downloads()
+        for d in downloads:
+            if str(d.get("item_id")) == str(item_id):
+                if self.media_type in ["series", "anime"]:
+                    if d.get("season") == sel_season and d.get("episode") == sel_episode:
+                        has_download = True
+                        break
+                else:
+                    has_download = True
+                    break
 
-        if active_engine or has_progress:
+        has_resume = False
+        history = database.get_history()
+        for h in history:
+            if str(h.get("id")) == str(item_id):
+                if self.media_type in ["series", "anime"]:
+                    if h.get("season") == sel_season and h.get("episode") == sel_episode:
+                        if h.get("progress", 0) > 0 and h.get("progress", 0) < 0.95:
+                            has_resume = True
+                            break
+                else:
+                    if h.get("progress", 0) > 0 and h.get("progress", 0) < 0.95:
+                        has_resume = True
+                        break
+
+        if active_engine or has_download:
             self.watch_btn.set_label("▶ Continue Watching")
             self.watch_menu_btn.set_visible(True)
             self.watch_box.set_css_classes(['linked'])
             self.watch_btn.set_css_classes(['suggested-action'])
             if hasattr(self, 'stop_btn'): self.stop_btn.set_visible(bool(active_engine))
             self._is_continuing = True
+        elif has_resume:
+            self.watch_btn.set_label("Continue Episode")
+            self.watch_menu_btn.set_visible(False)
+            self.watch_box.set_css_classes(['linked'])
+            self.watch_btn.set_css_classes(['suggested-action'])
+            if hasattr(self, 'stop_btn'): self.stop_btn.set_visible(False)
+            self._is_continuing = False
         else:
             self.watch_btn.set_label("WATCH IT NOW")
             self.watch_menu_btn.set_visible(False)
@@ -1072,12 +1106,14 @@ class MovieDetailsPage(Gtk.Overlay):
                 if self.media_type in ["series", "anime"]:
                     f_idx = None
                 self._start_streaming(active_engine.magnet_link, f_idx)
+                GLib.idle_add(self._check_continue_watching, self.movie_stub.get("id"))
                 return
 
         if not getattr(self, 'selected_torrent', None):
             # If we have a previously played magnet, resume with that
             if self._last_played_magnet:
                 self._start_streaming(self._last_played_magnet, self._last_played_file_index)
+                GLib.idle_add(self._check_continue_watching, self.movie_stub.get("id"))
                 return
             if hasattr(self, 'progress_label') and self.progress_label:
                 self.progress_label.set_text("No streams available. Select a quality first.")
@@ -1109,6 +1145,9 @@ class MovieDetailsPage(Gtk.Overlay):
         
         file_index = torrent.get("file_index")
         self._start_streaming(magnet, file_index)
+        
+        # Immediately update the UI so the button changes to 'Continue Watching'
+        GLib.idle_add(self._check_continue_watching, self.movie_stub.get("id"))
         
     def on_stream_failed(self):
         """Auto-fallback to the next available stream if the current one fails."""
@@ -1241,6 +1280,17 @@ class MovieDetailsPage(Gtk.Overlay):
                         widget.global_player.player_widget.fetching_next_episode = True
                     
                     is_http_current = magnet.startswith("http://") or magnet.startswith("https://")
+                    
+                    should_prefetch = database.get_setting("prefetch_next", True)
+                    if not should_prefetch:
+                        def clear_fetching():
+                            try:
+                                root = self.get_root()
+                                if hasattr(root, 'global_player'):
+                                    root.global_player.player_widget.fetching_next_episode = False
+                            except Exception: pass
+                        GLib.idle_add(clear_fetching)
+                        
                     # Torrents for series are not embedded in the initial API response, fetch them in background!
                     import threading
                     def fetch_next_torrents(want_http=is_http_current):
@@ -1263,37 +1313,80 @@ class MovieDetailsPage(Gtk.Overlay):
                             
                             best_torrent = None
                             
-                            # Prioritize the same addon the user originally selected
-                            target_addon = None
-                            if hasattr(self, 'selected_torrent') and self.selected_torrent:
-                                target_addon = self.selected_torrent.get("addon_name")
-                                if not target_addon and self.selected_torrent.get("addon_names"):
-                                    target_addon = self.selected_torrent["addon_names"][0]
-                                    
-                            if target_addon:
+                            # PRIORITIZE SAME TORRENT (Pack)
+                            current_hash = None
+                            if not is_http_current:
+                                from .libtorrent_stream import info_hash_from_magnet
+                                current_hash = info_hash_from_magnet(magnet)
+                                
+                            if current_hash:
+                                print(f"[NEXT_EPISODE] Current episode hash: {current_hash}")
                                 for t in filtered_torrents:
-                                    t_addons = t.get("addon_names", [])
-                                    if not t_addons and t.get("addon_name"):
-                                        t_addons = [t.get("addon_name")]
-                                    if target_addon in t_addons:
+                                    t_hash = t.get("hash")
+                                    if not t_hash and t.get("url", "").startswith("magnet:?"):
+                                        from .libtorrent_stream import info_hash_from_magnet
+                                        t_hash = info_hash_from_magnet(t.get("url"))
+                                    if t_hash and t_hash.lower() == current_hash.lower():
+                                        print(f"[NEXT_EPISODE] SUCCESS! Next episode found inside the same torrent pack. Reusing hash: {current_hash}")
                                         best_torrent = t
                                         break
                                         
                             if not best_torrent:
-                                for p_q in ["1080p", "720p", "4K", "480p"]:
+                                print(f"[NEXT_EPISODE] Next episode is NOT in the same torrent pack. Falling back to search...")
+                                        
+                            target_addon = None
+                            target_quality = None
+                            if hasattr(self, 'selected_torrent') and self.selected_torrent:
+                                target_addon = self.selected_torrent.get("addon_name")
+                                if not target_addon and self.selected_torrent.get("addon_names"):
+                                    target_addon = self.selected_torrent["addon_names"][0]
+                                target_quality = self.selected_torrent.get("quality")
+                            
+                            def addon_matches(t, t_addon):
+                                if not t_addon: return True
+                                t_addons = t.get("addon_names", [])
+                                if not t_addons and t.get("addon_name"):
+                                    t_addons = [t.get("addon_name")]
+                                return t_addon in t_addons
+                                
+                            qualities = [target_quality] if target_quality else []
+                            for q in ["1080p", "720p", "4K", "480p"]:
+                                if q not in qualities:
+                                    qualities.append(q)
+                                    
+                            if not best_torrent and target_addon:
+                                for p_q in qualities:
+                                    for t in filtered_torrents:
+                                        if addon_matches(t, target_addon) and t.get("quality") == p_q:
+                                            best_torrent = t
+                                            break
+                                    if best_torrent: break
+                                    
+                            if not best_torrent:
+                                for p_q in qualities:
                                     for t in filtered_torrents:
                                         if t.get("quality") == p_q:
                                             best_torrent = t
                                             break
-                                    if best_torrent:
+                                    if best_torrent: break
+                                    
+                            if not best_torrent and target_addon:
+                                for t in filtered_torrents:
+                                    if addon_matches(t, target_addon):
+                                        best_torrent = t
                                         break
                             
                             if not best_torrent:
                                 best_torrent = filtered_torrents[0]
                                 
+                            print(f"[NEXT_EPISODE] Selected stream for next episode: Quality={best_torrent.get('quality')}, Addon={best_torrent.get('addon_name', 'Unknown')}, Filename={best_torrent.get('filename')}")
+                                
                             n_magnet = best_torrent.get("url") or best_torrent.get("magnet")
                             if not n_magnet and best_torrent.get("hash"):
-                                n_magnet = api.build_magnet(best_torrent.get("hash"), self.movie_stub.get("title", ""))
+                                dn_title = best_torrent.get("filename")
+                                if not dn_title:
+                                    dn_title = self.movie_stub.get("title", "")
+                                n_magnet = api.build_magnet(best_torrent.get("hash"), dn_title)
                                 
                             if n_magnet and n_magnet.startswith("magnet:?"):
                                 import urllib.parse
@@ -1307,6 +1400,49 @@ class MovieDetailsPage(Gtk.Overlay):
                                     "udp://tracker.internetwarriors.net:1337/announce",
                                     "udp://tracker.cyberia.is:6969/announce",
                                     "http://tracker.openbittorrent.com:80/announce",
+                                    "udp://tracker.dler.com:6969/announce",
+                                    "http://tracker.bt4g.com:2095/announce",
+                                    "udp://tracker-udp.gbitt.info:80/announce",
+                                    "http://ipv4announce.sktorrent.eu:6969/announce",
+                                    "http://tracker.mywaifu.best:6969/announce",
+                                    "udp://open.demonii.com:1337/announce",
+                                    "udp://evan.im:6969/announce",
+                                    "udp://bittorrent-tracker.e-n-c-r-y-p-t.net:1337/announce",
+                                    "udp://martin-gebhardt.eu:25/announce",
+                                    "udp://tracker.opentorrent.top:6969/announce",
+                                    "udp://ns575949.ip-51-222-82.net:6969/announce",
+                                    "udp://tracker.corpscorp.online:80/announce",
+                                    "https://tracker.manager.v6.navy:443/announce",
+                                    "https://tracker.7471.top:443/announce",
+                                    "udp://open.ftorrent.com:443/announce",
+                                    "https://tracker.anibt.net:443/announce",
+                                    "https://orgtgju.org:443/announce",
+                                    "https://banananetwork.qzz.io:443/announce",
+                                    "https://021912.xyz:443/announce",
+                                    "https://ht.therarbg.to:443/announce",
+                                    "udp://tracker.peerfect.org:6969/announce",
+                                    "udp://tracker.ilibr.org:6969/announce",
+                                    "udp://tracker.qu.ax:6969/announce",
+                                    "http://tracker.waaa.moe:6969/announce",
+                                    "udp://tracker.bluefrog.pw:2710/announce",
+                                    "udp://tracker.aruku.ovh:8081/announce",
+                                    "udp://anime-tracker.aruku.kro.kr:8081/announce",
+                                    "udp://mail.segso.net:6969/announce",
+                                    "udp://tracker.opentrackr.com:6969/announce",
+                                    "https://tracker.leechshield.link:443/announce",
+                                    "http://wegkxfcivgx.ydns.eu:80/announce",
+                                    "https://t.213891.xyz:443/announce",
+                                    "udp://tracker.gmi.gd:6969/announce",
+                                    "udp://tracker.teambelgium.net:6969/announce",
+                                    "http://tracker.xn--djrq4gl4hvoi.top:80/announce",
+                                    "http://tracker.dhitechnical.com:6969/announce",
+                                    "udp://tracker.wildkat.net:6969/announce",
+                                    "udp://torrentclub.online:1984/announce",
+                                    "http://bt1.archive.org:6969/announce",
+                                    "http://bt2.archive.org:6969/announce",
+                                    "udp://t.overflow.biz:6969/announce",
+                                    "http://tracker.renfei.net:8080/announce",
+                                    "https://tracker.zhuqiy.com:443/announce",
                                     "udp://open.stealth.si:80/announce"
                                 ]
                                 for tr in trackers:
@@ -1316,6 +1452,10 @@ class MovieDetailsPage(Gtk.Overlay):
                                         
                             if n_magnet:
                                 if not is_http_current:
+                                    from .libtorrent_stream import info_hash_from_magnet
+                                    next_hash = info_hash_from_magnet(n_magnet)
+                                    if next_hash:
+                                        self._pending_next_hash = next_hash
                                     player.download_magnet_background(
                                         n_magnet,
                                         file_index=best_torrent.get("file_index"),
@@ -1379,8 +1519,8 @@ class MovieDetailsPage(Gtk.Overlay):
                                 except Exception:
                                     pass
                             GLib.idle_add(clear_fetching)
-                            
-                    threading.Thread(target=fetch_next_torrents, daemon=True).start()
+                    if should_prefetch:
+                        threading.Thread(target=fetch_next_torrents, daemon=True).start()
             
         item_id = self.movie_stub.get("id")
         
@@ -1541,13 +1681,7 @@ class DownloadItemWidget(Gtk.Box):
         self.stop_btn.connect("clicked", self.on_stop_clicked)
         pop_box.append(self.stop_btn)
         
-        self.watch_btn = Gtk.Button(label="Play Video File", icon_name="media-playback-start-symbolic")
-        self.watch_btn.set_tooltip_text("Play Video File")
-        self.watch_btn.set_has_frame(False)
-        self.watch_btn.set_halign(Gtk.Align.START)
-        self.watch_btn.connect("clicked", self.on_watch_clicked)
-        pop_box.append(self.watch_btn)
-        
+
         folder_btn = Gtk.Button(label="Open Folder", icon_name="folder-symbolic")
         folder_btn.set_tooltip_text("Open Folder")
         folder_btn.set_has_frame(False)
@@ -1624,15 +1758,17 @@ class DownloadItemWidget(Gtk.Box):
             if tot > 0:
                 status_text += f" ({dl/(1024*1024):.1f} MB / {tot/(1024*1024*1024):.2f} GB)"
                 
-            status_desc = stats.get("status", "")
-            if "seeding" in status_desc.lower() or "finished" in status_desc.lower():
-                status_text = f"Seeding - {status_text}"
-                
             ratio = stats.get("ratio", 0)
             peers = stats.get("activePeers", 0)
             seeds = stats.get("seeds", 0)
             
-            if ratio > 0:
+            status_desc = stats.get("status", "")
+            if "seeding" in status_desc.lower() or "finished" in status_desc.lower():
+                status_text = f"Seeding - {status_text}"
+                if "Ratio:" not in status_text:
+                    status_text += f" | Ratio: {ratio:.2f}"
+                
+            if ratio > 0 and "Ratio:" not in status_text:
                 status_text += f" | Ratio: {ratio:.2f}"
             if peers > 0 or seeds > 0:
                 status_text += f" | Peers: {peers} / Seeds: {seeds}"
@@ -1664,25 +1800,6 @@ class DownloadItemWidget(Gtk.Box):
         )
         self.update_status()
         
-    def on_watch_clicked(self, btn):
-        if hasattr(self, 'popover'): self.popover.popdown()
-        
-        widget = self.get_root()
-        if hasattr(widget, 'global_player'):
-            widget.global_player.start_magnet(
-                self.magnet, 
-                self.file_index, 
-                self.download.get("item_id"), 
-                self.download.get("media_type", "movie"), 
-                self.download.get("title", "")
-            )
-            widget.switch_category("player", "All", widget.player_btn)
-            
-            def go_back_to_downloads():
-                widget.switch_category("downloads", "All", widget.downloads_btn)
-            
-            widget.global_player.player_widget.on_go_back = go_back_to_downloads
-        
     def on_stop_clicked(self, btn):
         if hasattr(self, 'popover'): self.popover.popdown()
         player.stop_engine_explicit(self.info_hash)
@@ -1712,6 +1829,10 @@ class DownloadItemWidget(Gtk.Box):
             except Exception:
                 pass
         
+        root = self.get_root()
+        if root:
+            root.set_focus(None)
+            
         parent = self.get_parent()
         if parent:
             parent.remove(self)
@@ -1814,9 +1935,15 @@ class GlobalPlayerView(Gtk.Box):
 
     def on_stop_stream(self, btn):
         h = player._streaming_hash
+        self._stream_session_id = None
         self.stop_all()
         if h:
             player.stop_engine_explicit(h)
+            database.remove_download(h)
+        if getattr(self, '_pending_next_hash', None):
+            player.stop_engine_explicit(self._pending_next_hash)
+            database.remove_download(self._pending_next_hash)
+            self._pending_next_hash = None
         if hasattr(self, 'player_widget') and callable(self.player_widget.on_go_back):
             self.player_widget.on_go_back()
 
@@ -1881,6 +2008,69 @@ class GlobalPlayerView(Gtk.Box):
         return progress_cb
 
     def start_magnet(self, magnet, file_index, item_id, media_type, title, next_episode_data=None, season=None, episode=None):
+        from . import database
+        from .libtorrent_stream import info_hash_from_magnet
+        info_hash = info_hash_from_magnet(magnet)
+        
+        try:
+            import urllib.parse
+            parsed = urllib.parse.urlparse(magnet)
+            qs = urllib.parse.parse_qs(parsed.query)
+            dn_title = qs.get("dn", [None])[0]
+            if dn_title:
+                title = urllib.parse.unquote_plus(dn_title)
+        except Exception:
+            pass
+            
+        if info_hash:
+            # Prefer the existing name in the database if it exists (it might be the true filename from metadata)
+            for d in database.get_downloads():
+                if d.get("info_hash") == info_hash:
+                    db_name = d.get("name")
+                    if db_name and db_name != "Fetching metadata...":
+                        title = db_name
+                    break
+                    
+            database.add_download(info_hash, title, magnet, file_index, item_id, media_type, season, episode)
+            
+            if database.get_setting("download_subs", True):
+                def fetch_subs():
+                    try:
+                        import os
+                        sub_dir = os.path.join(player.DOWNLOAD_BASE, info_hash)
+                        os.makedirs(sub_dir, exist_ok=True)
+                        subs = api.get_subtitles(item_id, media_type, season, episode)
+                        eng_subs = [s for s in subs if "en" in s.get("lang", "").lower() or "english" in s.get("lang", "").lower()]
+                        if eng_subs:
+                            sub_url = eng_subs[0].get("url")
+                            sub_path = os.path.join(sub_dir, "subtitle.srt")
+                            api.download_subtitle_to_path(sub_url, sub_path)
+                            print(f"Downloaded subtitle to {sub_path}")
+                            
+                            def add_sub(retries=30):
+                                if retries <= 0: return False
+                                if player._streaming_hash != info_hash: return False
+                                
+                                # Only try to inject if the video player UI is actually active
+                                if self.stack.get_visible_child_name() != "player":
+                                    GLib.timeout_add(2000, lambda: add_sub(retries))
+                                    return False
+                                    
+                                if hasattr(self, 'player_widget') and hasattr(self.player_widget, 'mpv') and self.player_widget.mpv:
+                                    try:
+                                        self.player_widget.mpv.sub_add(sub_path)
+                                        print(f"Successfully added subtitle on the fly: {sub_path}")
+                                        return False
+                                    except Exception as e:
+                                        print(f"Error adding sub on the fly (retrying in 2s): {e}")
+                                        GLib.timeout_add(2000, lambda: add_sub(retries - 1))
+                                return False
+                            GLib.idle_add(add_sub)
+                    except Exception as e:
+                        print(f"Failed to fetch sub for torrent: {e}")
+                import threading
+                threading.Thread(target=fetch_subs, daemon=True).start()
+            
         self.stop_all() 
         self.current_item_id = item_id
         self.stack.set_visible_child_name("download")
@@ -2072,7 +2262,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         
         def delayed_background_init():
             import time
-            time.sleep(2.0)
+            time.sleep(30.0)
             player.init_background_downloads()
             
         import threading
@@ -2375,6 +2565,8 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
 
         if media_type == "player":
             self.stack.set_visible_child_name("global_player")
+            if hasattr(self, 'global_player') and hasattr(self.global_player, 'player_widget'):
+                self.global_player.player_widget.gl_area.queue_render()
             if hasattr(self, 'search_revealer'):
                 self.search_revealer.set_reveal_child(False)
                 if self.search_entry.get_text():
@@ -2484,8 +2676,9 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
 
         self.fetch_and_update_genre_counts(media_type)
         
-        # If the target page has never loaded, OR if its loaded state doesn't match the current query
-        if not target_page.has_loaded_once or target_page.loaded_query != self.current_query:
+        # If the target page has never loaded, or it's a local database page, or if its loaded state doesn't match the current query
+        is_local_db = media_type in ["favorites", "watched", "history", "downloads", "addons"]
+        if not target_page.has_loaded_once or is_local_db or target_page.loaded_query != self.current_query:
             self.load_category_movies(target_page, query=self.current_query)
         
     def on_genre_changed(self, dropdown, *args):
@@ -2992,11 +3185,11 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         return False
 
     def _is_player_visible(self):
-        """True when the actual mpv video player tab is active."""
+        """True when the global player view is active."""
         return (
             hasattr(self, 'global_player') and
             self.stack.get_visible_child_name() == "global_player" and
-            self.global_player.stack.get_visible_child_name() == "player"
+            self.global_player.stack.get_visible_child_name() in ["player", "download"]
         )
 
     def _on_global_key_pressed(self, controller, keyval, keycode, state):

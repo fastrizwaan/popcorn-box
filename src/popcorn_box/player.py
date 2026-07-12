@@ -34,7 +34,8 @@ def stop_player(keep_downloading=False):
                 if prog < 1.0 and not keep_downloading:
                     print(f"Pausing partially downloaded engine: {_streaming_hash}")
                     if hasattr(engine, 'pause'):
-                        engine.pause()
+                        import threading
+                        threading.Thread(target=engine.pause, daemon=True).start()
                     database.set_download_paused(_streaming_hash, True)
                 else:
                     print(f"Leaving engine running: {_streaming_hash} (progress={prog:.2f}, keep_downloading={keep_downloading})")
@@ -59,15 +60,10 @@ def stop_engine_explicit(info_hash):
     """Explicitly stop a background download."""
     from . import database
     with _engines_lock:
-        engine = _engines.get(info_hash)
-        if engine:
-            def stop_eng(eng):
-                try:
-                    eng.stop()
-                except Exception:
-                    pass
-            threading.Thread(target=stop_eng, args=(engine,), daemon=True).start()
-            del _engines[info_hash]
+        eng = _engines.pop(info_hash, None)
+        if eng:
+            print(f"Explicitly stopping engine: {info_hash}")
+            threading.Thread(target=eng.stop, daemon=True).start()
     database.set_download_paused(info_hash, True)
 
 def exit_player():
@@ -84,20 +80,32 @@ def exit_player():
 atexit.register(exit_player)
 
 def init_background_downloads():
+    # Do not start background engines if the user is already streaming a video
+    with _engines_lock:
+        if _streaming_hash is not None:
+            return
+            
     from . import database
     downloads = database.get_downloads()
     
-    # Start all 100% finished downloads, and limit active downloading to 5
+    # Start up to 10 finished downloads, and limit active downloading to 5
     active_count = 0
     max_auto_start = 5
+    finished_count = 0
+    max_seeding = 10
     
+    import time
     for d in downloads:
         if not d.get("paused", False):
             if d.get("finished", False):
-                download_magnet_background(d["magnet"], d.get("file_index"), d.get("item_id"), d.get("media_type"), d.get("season"), d.get("episode"))
+                if finished_count < max_seeding:
+                    download_magnet_background(d["magnet"], d.get("file_index"), d.get("item_id"), d.get("media_type"), d.get("season"), d.get("episode"))
+                    finished_count += 1
+                    time.sleep(10.0)
             elif active_count < max_auto_start:
                 download_magnet_background(d["magnet"], d.get("file_index"), d.get("item_id"), d.get("media_type"), d.get("season"), d.get("episode"))
                 active_count += 1
+                time.sleep(10.0)
 
 def get_player_cmd():
     import shutil
@@ -169,6 +177,15 @@ def download_magnet_background(magnet_link, file_index=None, item_id=None, media
             with _engines_lock:
                 _engines[info_hash] = engine
             database.set_download_paused(info_hash, False)
+            import time
+            time.sleep(5.0) # Wait for fast-resume data to load
+            if engine.is_alive():
+                stats = engine.stats()
+                if stats.get("progress", 0) >= 1.0 and stats.get("ratio", 0) >= 1.5:
+                    print(f"Background engine {info_hash} already reached 1.5x ratio. Pausing.")
+                    engine.stop()
+                    database.set_download_paused(info_hash, True)
+                
         except Exception as e:
             print(f"Error launching background download: {e}")
 
@@ -241,17 +258,26 @@ def play_magnet(magnet_link, player="mpv", progress_callback=None, file_index=No
             eng = _engines[h]
             try:
                 stats = eng.stats()
-                if stats.get("progress", 0) >= 1.0:
+                
+                # We want a max of 10 seeding background engines, otherwise we kill them to save memory
+                active_count = sum(1 for e in _engines.values() if e.is_alive())
+                if stats.get("progress", 0) >= 1.0 and active_count <= 10:
                     print(f"Leaving 100% seeded engine running: {h}")
                     continue
                 
-                print(f"Stopping other background engine: {h}")
-                eng.stop()
+                if stats.get("progress", 0) >= 1.0:
+                    print(f"Stopping 100% seeded engine to save resources (limit reached): {h}")
+                
+                print(f"Stopping background engine: {h}")
+                threading.Thread(target=eng.stop, daemon=True).start()
                 database.set_download_paused(h, True)
             except Exception:
                 pass
             if h in _engines:
                 del _engines[h]
+
+        global _streaming_hash
+        _streaming_hash = info_hash
 
     with _engines_lock:
         engine = _engines.get(info_hash)
@@ -305,8 +331,8 @@ def play_magnet(magnet_link, player="mpv", progress_callback=None, file_index=No
                             if progress_callback:
                                 stats = engine.stats()
                                 buffered = stats.get("bufferedFromStart", 0)
-                                msg = f"Buffering... {buffered/(1024*1024):.1f} MB"
-                                GLib.idle_add(progress_callback, {"status": msg})
+                                stats["status"] = f"Buffering... {buffered/(1024*1024):.1f} MB"
+                                GLib.idle_add(progress_callback, stats)
                             time.sleep(1)
                         launch_player_only(engine)
                     threading.Thread(target=resume_stream, daemon=True).start()
