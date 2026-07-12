@@ -124,22 +124,29 @@ class PlayerWidget(Gtk.Box):
         if not HAS_MPV:
             return
 
-        self.mpv = mpv.MPV(
-            vo="libmpv",
-            osc=True,
-            ytdl=True,
-            ytdl_raw_options="yes-playlist=",
-            loglevel="warn",
-            hwdec="auto",
-            slang="en,eng,English",
-            alang="en,eng,English",
-            subs_fallback="yes",
-            input_default_bindings=True,
-            input_vo_keyboard=True,
-            osd_font_size=28,
-            osd_align_x="center",
-            osd_align_y="top",
-        )
+        mpv_kwargs = {
+            "vo": "libmpv",
+            "osc": True,
+            "ytdl": True,
+            "ytdl_raw_options": "yes-playlist=",
+            "loglevel": "warn",
+            "hwdec": "auto",
+            "slang": "en,eng,English",
+            "alang": "en,eng,English",
+            "subs_fallback": "yes",
+            "input_default_bindings": True,
+            "input_vo_keyboard": True,
+            "osd_font_size": 28,
+            "osd_align_x": "center",
+            "osd_align_y": "top",
+        }
+        
+        import os
+        script_path = "/app/etc/mpv/scripts/mpv_inhibit_gnome.so"
+        if os.path.exists(script_path):
+            mpv_kwargs["scripts"] = script_path
+            
+        self.mpv = mpv.MPV(**mpv_kwargs)
 
         self.gl_area.connect("realize",  self._on_realize)
         self.gl_area.connect("render",   self._on_render)
