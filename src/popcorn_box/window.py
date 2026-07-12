@@ -3240,6 +3240,9 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         url = url.strip()
         if not url:
             return
+            
+        if url.startswith("stremio://"):
+            url = "https://" + url[10:]
         
         if not (url.startswith("http://") or url.startswith("https://")):
             dialog = Adw.MessageDialog(
