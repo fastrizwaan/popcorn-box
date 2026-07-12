@@ -806,6 +806,10 @@ class MovieDetailsPage(Gtk.Overlay):
             self.row3_box.set_visible(False)
         if hasattr(self, 'row4_box') and self.row4_box:
             self.row4_box.set_visible(False)
+        if hasattr(self, 'autoplay_check') and self.autoplay_check:
+            self.autoplay_check.set_visible(False)
+        if hasattr(self, 'prefetch_check') and self.prefetch_check:
+            self.prefetch_check.set_visible(False)
             
         if hasattr(self, 'progress_label') and self.progress_label:
             self.progress_label.set_text("Loading streams...")
@@ -836,6 +840,10 @@ class MovieDetailsPage(Gtk.Overlay):
             self.row4_box.set_visible(False)
             if hasattr(self, 'progress_label') and self.progress_label:
                 self.progress_label.set_text("No streams available.")
+            if hasattr(self, 'autoplay_check') and self.autoplay_check:
+                self.autoplay_check.set_visible(False)
+            if hasattr(self, 'prefetch_check') and self.prefetch_check:
+                self.prefetch_check.set_visible(False)
             return
             
         self.quality_button_box.set_visible(True)
@@ -843,6 +851,10 @@ class MovieDetailsPage(Gtk.Overlay):
         self.row4_box.set_visible(True)
         self.watch_btn.set_sensitive(True)
         self.download_btn.set_sensitive(True)
+        if hasattr(self, 'autoplay_check') and self.autoplay_check:
+            self.autoplay_check.set_visible(True)
+        if hasattr(self, 'prefetch_check') and self.prefetch_check:
+            self.prefetch_check.set_visible(True)
         
         quality_groups = {"4K": [], "2160p": [], "1080p": [], "720p": [], "More": [], "Direct": []}
         
