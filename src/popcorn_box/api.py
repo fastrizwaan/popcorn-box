@@ -171,7 +171,8 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
 def fetch_movie_details(imdb_id, media_type="movie", title=None):
     c_type = "series" if media_type in ["series", "anime", "tv"] else "movie"
     
-    if str(imdb_id).startswith("tmdb:"):
+    is_tmdb = str(imdb_id).startswith("tmdb:") or str(imdb_id).startswith("ctmdb.")
+    if is_tmdb:
         resolved_id = None
         try:
             tmdb_api_key = None
@@ -185,7 +186,7 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                         break
                         
             if tmdb_api_key:
-                tmdb_id = str(imdb_id).split(":")[-1]
+                tmdb_id = str(imdb_id).split(":")[-1] if ":" in str(imdb_id) else str(imdb_id).split(".")[-1]
                 tmdb_type = "tv" if c_type == "series" else "movie"
                 tmdb_url = f"https://api.themoviedb.org/3/{tmdb_type}/{tmdb_id}?api_key={tmdb_api_key}&append_to_response=external_ids"
                 
@@ -262,7 +263,7 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 })
             
             true_id = cm.get("imdb_id") or imdb_id
-            if str(true_id).startswith("tmdb:"):
+            if str(true_id).startswith("tmdb:") or str(true_id).startswith("ctmdb."):
                 title = cm.get("name")
                 if title:
                     try:
