@@ -13,7 +13,9 @@
     "--filesystem=xdg-run/tmp:rw",
     "--socket=pulseaudio",
     "--talk-name=org.freedesktop.ScreenSaver",
-    "--talk-name=org.gnome.SessionManager"
+    "--talk-name=org.gnome.SessionManager",
+    "--talk-name=org.freedesktop.PowerManagement",
+    "--talk-name=org.freedesktop.login1"
   ],
   "modules": [
     {

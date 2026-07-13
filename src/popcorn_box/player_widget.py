@@ -1,6 +1,7 @@
 import gi
 import ctypes
-from gi.repository import Gdk, GLib, Gtk
+import os
+from gi.repository import Gdk, Gio, GLib, Gtk
 
 try:
     import mpv
@@ -101,6 +102,8 @@ class PlayerWidget(Gtk.Box):
         self._waiting_at_eof = False
         self._playback_started = False
         self._inhibit_cookie = 0
+        self._dbus_inhibit_cookie = 0
+        self._inhibit_keepalive_id = None
         
         self.up_next_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.up_next_box.set_halign(Gtk.Align.END)
@@ -124,29 +127,26 @@ class PlayerWidget(Gtk.Box):
         if not HAS_MPV:
             return
 
-        mpv_kwargs = {
-            "vo": "libmpv",
-            "osc": True,
-            "ytdl": True,
-            "ytdl_raw_options": "yes-playlist=",
-            "loglevel": "warn",
-            "hwdec": "auto",
-            "slang": "en,eng,English",
-            "alang": "en,eng,English",
-            "subs_fallback": "yes",
-            "input_default_bindings": True,
-            "input_vo_keyboard": True,
-            "osd_font_size": 28,
-            "osd_align_x": "center",
-            "osd_align_y": "top",
-        }
-        
-        import os
-        script_path = "/app/etc/mpv/scripts/mpv_inhibit_gnome.so"
-        if os.path.exists(script_path):
-            mpv_kwargs["scripts"] = script_path
-            
-        self.mpv = mpv.MPV(**mpv_kwargs)
+        # NOTE: mpv_inhibit_gnome.so is NOT loaded here because it is a C plugin
+        # designed for the standalone mpv binary and does not function correctly
+        # when libmpv is embedded via python-mpv with vo=libmpv (no real mpv window).
+        # Screensaver inhibition is handled entirely in Python below.
+        self.mpv = mpv.MPV(
+            vo="libmpv",
+            osc=True,
+            ytdl=True,
+            ytdl_raw_options="yes-playlist=",
+            loglevel="warn",
+            hwdec="auto",
+            slang="en,eng,English",
+            alang="en,eng,English",
+            subs_fallback="yes",
+            input_default_bindings=True,
+            input_vo_keyboard=True,
+            osd_font_size=28,
+            osd_align_x="center",
+            osd_align_y="top",
+        )
 
         self.gl_area.connect("realize",  self._on_realize)
         self.gl_area.connect("render",   self._on_render)
@@ -404,7 +404,10 @@ class PlayerWidget(Gtk.Box):
 
     def _on_time_pos(self, name, value):
         if value and value > 0:
-            self._playback_started = True
+            if not self._playback_started:
+                self._playback_started = True
+                # Now that playback has truly started, ensure we have inhibition
+                GLib.idle_add(self._inhibit_screensaver)
             self._last_time_pos = value
             
         if not value or not self._current_duration:
@@ -492,39 +495,169 @@ class PlayerWidget(Gtk.Box):
                         GLib.idle_add(self.on_playback_failed)
 
     def _on_pause_change(self, name, value):
-        # value is True if paused, False if playing
-        if value:
-            self._uninhibit_screensaver()
-        else:
-            if getattr(self, '_is_playing', False):
-                self._inhibit_screensaver()
+        # Do NOT uninhibit on pause — users may pause to read subtitles, take
+        # a call, etc. and still expect the screen to stay on.  Inhibition is
+        # only released on stop() / destroy() / idle (end-of-file).
+        pass
 
+    # ------------------------------------------------------------------
+    # Screensaver inhibition — triple-layered defence
+    #   Layer 1: GTK app.inhibit() via the XDG Inhibit portal
+    #   Layer 2: Direct D-Bus call to org.gnome.SessionManager (fallback)
+    #   Layer 3: Keep-alive timer that re-acquires inhibitors every 2 min
+    # ------------------------------------------------------------------
     def _inhibit_screensaver(self):
+        """Acquire screensaver inhibition using all available methods."""
+        if getattr(self, "_inhibit_cookie", 0):
+            return  # Already inhibited via GTK
+        if getattr(self, "_dbus_inhibit_cookie", 0):
+            return  # Already inhibited via D-Bus
+
+        # --- Layer 1: GTK app.inhibit() ---
+        app = Gtk.Application.get_default()
+        root = self.get_root()
+        if app and root:
+            try:
+                cookie = app.inhibit(root, Gtk.ApplicationInhibitFlags.IDLE, "Playing media")
+                if cookie and cookie != 0:
+                    self._inhibit_cookie = cookie
+                    print(f"[Inhibit] GTK inhibit succeeded, cookie={cookie}")
+                else:
+                    print(f"[Inhibit] GTK inhibit returned 0 — portal may have refused")
+            except Exception as e:
+                print(f"[Inhibit] GTK inhibit failed: {e}")
+        else:
+            print(f"[Inhibit] GTK inhibit skipped (app={bool(app)}, root={bool(root)})")
+
+        # --- Layer 2: D-Bus org.gnome.SessionManager fallback ---
         if not getattr(self, "_inhibit_cookie", 0):
+            self._dbus_inhibit()
+
+        # --- Layer 3: Start keep-alive timer ---
+        self._start_inhibit_keepalive()
+
+    def _dbus_inhibit(self):
+        """Fallback: call org.gnome.SessionManager.Inhibit via D-Bus."""
+        if getattr(self, "_dbus_inhibit_cookie", 0):
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            proxy = Gio.DBusProxy.new_sync(
+                bus,
+                Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES | Gio.DBusProxyFlags.DO_NOT_CONNECT_SIGNALS,
+                None,
+                "org.gnome.SessionManager",
+                "/org/gnome/SessionManager",
+                "org.gnome.SessionManager",
+                None,
+            )
+            # Inhibit(app_id, toplevel_xid, reason, flags)
+            # flag 8 = INHIBIT_IDLE (prevent screen blanking)
+            result = proxy.call_sync(
+                "Inhibit",
+                GLib.Variant("(susu)", ("io.github.fastrizwaan.PopcornBox", 0, "Playing media", 8)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+            cookie = result.unpack()[0]
+            if cookie:
+                self._dbus_inhibit_cookie = cookie
+                print(f"[Inhibit] D-Bus SessionManager inhibit succeeded, cookie={cookie}")
+            else:
+                print(f"[Inhibit] D-Bus SessionManager returned cookie 0")
+        except Exception as e:
+            print(f"[Inhibit] D-Bus SessionManager inhibit failed: {e}")
+
+    def _dbus_uninhibit(self):
+        """Release the D-Bus SessionManager inhibitor."""
+        cookie = getattr(self, "_dbus_inhibit_cookie", 0)
+        if not cookie:
+            return
+        try:
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            proxy = Gio.DBusProxy.new_sync(
+                bus,
+                Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES | Gio.DBusProxyFlags.DO_NOT_CONNECT_SIGNALS,
+                None,
+                "org.gnome.SessionManager",
+                "/org/gnome/SessionManager",
+                "org.gnome.SessionManager",
+                None,
+            )
+            proxy.call_sync(
+                "Uninhibit",
+                GLib.Variant("(u)", (cookie,)),
+                Gio.DBusCallFlags.NONE,
+                -1,
+                None,
+            )
+            print(f"[Inhibit] D-Bus SessionManager uninhibited, cookie={cookie}")
+        except Exception as e:
+            print(f"[Inhibit] D-Bus SessionManager uninhibit failed: {e}")
+        self._dbus_inhibit_cookie = 0
+
+    def _start_inhibit_keepalive(self):
+        """Start a periodic timer that ensures inhibition stays active."""
+        if getattr(self, "_inhibit_keepalive_id", None):
+            return  # Already running
+        self._inhibit_keepalive_id = GLib.timeout_add_seconds(120, self._keepalive_tick)
+        print("[Inhibit] Keep-alive timer started (every 120s)")
+
+    def _stop_inhibit_keepalive(self):
+        """Stop the keep-alive timer."""
+        kid = getattr(self, "_inhibit_keepalive_id", None)
+        if kid:
+            GLib.source_remove(kid)
+            self._inhibit_keepalive_id = None
+            print("[Inhibit] Keep-alive timer stopped")
+
+    def _keepalive_tick(self):
+        """Called every 2 min to ensure the inhibitor is still held."""
+        if not getattr(self, "_is_playing", False):
+            self._inhibit_keepalive_id = None
+            return False  # Stop the timer
+
+        has_gtk = bool(getattr(self, "_inhibit_cookie", 0))
+        has_dbus = bool(getattr(self, "_dbus_inhibit_cookie", 0))
+        print(f"[Inhibit] Keep-alive tick — GTK cookie: {has_gtk}, D-Bus cookie: {has_dbus}")
+
+        if not has_gtk and not has_dbus:
+            print("[Inhibit] Both inhibitors lost! Re-acquiring...")
+            self._inhibit_screensaver()
+        elif not has_gtk:
+            # Try to re-acquire the preferred GTK inhibitor
             app = Gtk.Application.get_default()
-            if app:
-                root = self.get_root()
-                if not root:
-                    # Defer inhibition to when the widget is mapped/realized if not yet attached
-                    GLib.idle_add(self._inhibit_screensaver)
-                    return
+            root = self.get_root()
+            if app and root:
                 try:
-                    self._inhibit_cookie = app.inhibit(root, Gtk.ApplicationInhibitFlags.IDLE, "Playing media")
-                    print(f"[PlayerWidget] Screensaver inhibited, cookie: {self._inhibit_cookie}")
-                except Exception as e:
-                    print(f"[PlayerWidget] Failed to inhibit screensaver: {e}")
+                    cookie = app.inhibit(root, Gtk.ApplicationInhibitFlags.IDLE, "Playing media")
+                    if cookie and cookie != 0:
+                        self._inhibit_cookie = cookie
+                        print(f"[Inhibit] Keep-alive re-acquired GTK inhibit, cookie={cookie}")
+                except Exception:
+                    pass
+
+        return True  # Keep the timer running
 
     def _uninhibit_screensaver(self):
+        """Release ALL screensaver inhibitors and stop the keep-alive timer."""
+        self._stop_inhibit_keepalive()
+
+        # Release GTK inhibitor
         cookie = getattr(self, "_inhibit_cookie", 0)
         if cookie:
             app = Gtk.Application.get_default()
             if app:
                 try:
                     app.uninhibit(cookie)
-                    print(f"[PlayerWidget] Screensaver uninhibited, cookie: {cookie}")
+                    print(f"[Inhibit] GTK uninhibited, cookie={cookie}")
                 except Exception as e:
-                    print(f"[PlayerWidget] Failed to uninhibit screensaver: {e}")
+                    print(f"[Inhibit] GTK uninhibit failed: {e}")
             self._inhibit_cookie = 0
+
+        # Release D-Bus inhibitor
+        self._dbus_uninhibit()
 
     # ------------------------------------------------------------------
     # Public API
@@ -569,13 +702,22 @@ class PlayerWidget(Gtk.Box):
         database.set_setting("audio_normalize", new_level)
         self.apply_audio_norm()
 
+    def _try_initial_inhibit(self):
+        """Called 500ms after play() to try inhibiting once the widget is likely realized."""
+        if getattr(self, "_is_playing", False):
+            self._inhibit_screensaver()
+        return False  # Do not repeat
+
     def play(self, url, sub_file=None):
         self._is_playing = True
         self._playback_started = False
         self.keep_downloading = False
         self._up_next_triggered = False
         GLib.idle_add(self.up_next_box.set_visible, False)
-        self._inhibit_screensaver()
+        # Inhibition is deferred to _on_time_pos (when playback actually starts)
+        # to guarantee the widget is realized and get_root() returns a valid window.
+        # But try now as well — belt and suspenders.
+        GLib.timeout_add(500, self._try_initial_inhibit)
         self.apply_audio_norm()
         
         start_pos = 0
