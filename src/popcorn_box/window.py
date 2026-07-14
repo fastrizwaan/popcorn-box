@@ -3290,7 +3290,8 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     "manifest_url": url,
                     "enabled": True,
                     "catalogs": manifest_data.get("catalogs", []),
-                    "resources": manifest_data.get("resources", [])
+                    "resources": manifest_data.get("resources", []),
+                    "types": manifest_data.get("types", [])
                 }
                 
                 database.add_addon(addon)

@@ -334,14 +334,20 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
         if m_url.startswith("builtin:"): continue
         
         resources = addon.get("resources")
-        if resources is None:
+        addon_types = addon.get("types")
+        if resources is None or addon_types is None:
             try:
                 manifest_data = _get_cached_request(m_url, max_age_hours=168)
                 if manifest_data:
                     resources = manifest_data.get("resources", [])
                     addon["resources"] = resources
+                    addon_types = manifest_data.get("types", [])
+                    addon["types"] = addon_types
             except Exception:
                 pass
+                
+        if addon_types is not None and c_type not in addon_types:
+            continue
                 
         if resources is not None:
             has_meta = False
@@ -461,14 +467,12 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     if not addons:
         return []
         
-    if media_type == "tv":
-        addons = [a for a in addons if a.get("id") == "local.iptv-org"]
-        
     stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
     
     def fetch_from_addon(addon):
         resources = addon.get("resources")
         manifest_url = addon.get("manifest_url", "")
+        addon_types = addon.get("types")
         
         if addon.get("id") == "local.iptv-org":
             streams_data = _get_cached_request("https://iptv-org.github.io/api/streams.json", max_age_hours=24)
@@ -485,15 +489,21 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
                 })
             return addon.get("name", "Unknown"), valid_strms
 
-        # If resources not in DB, fetch manifest and cache it
-        if resources is None and manifest_url:
+        # If resources/types not in DB, fetch manifest and cache it
+        if (resources is None or addon_types is None) and manifest_url:
             try:
                 manifest_data = _get_cached_request(manifest_url, max_age_hours=168)
                 if manifest_data:
                     resources = manifest_data.get("resources", [])
                     addon["resources"] = resources
+                    addon_types = manifest_data.get("types", [])
+                    addon["types"] = addon_types
             except Exception:
                 pass
+                
+        # Skip if addon explicitly doesn't support this media type
+        if addon_types is not None and actual_media not in addon_types:
+            return addon.get("name", "Unknown"), []
                 
         # If we know the resources, verify it supports streams
         if resources is not None:
