@@ -938,8 +938,8 @@ class MovieDetailsPage(Gtk.Overlay):
             self.current_t_list = t_list
             self.selected_torrent = t_list[0]
             if self.selected_torrent.get("is_http"):
-                self.download_btn.set_sensitive(False)
-                self.download_btn.set_tooltip_text("Direct streams cannot be downloaded.")
+                self.download_btn.set_sensitive(True)
+                self.download_btn.set_tooltip_text("Download Direct Stream (Opens in Browser)")
                 if hasattr(self, 'prefetch_check'): self.prefetch_check.set_visible(False)
             else:
                 self.download_btn.set_sensitive(True)
@@ -951,9 +951,20 @@ class MovieDetailsPage(Gtk.Overlay):
                 addons_str = ", ".join(t.get("addon_names", []))
                 addons_suffix = f" [{addons_str}]" if addons_str else ""
                 
-                size_str = t.get('size', '')
-                if not size_str and t.get('is_http'): size_str = "Direct Stream"
-                elif not size_str: size_str = "Unknown Size"
+                stream_title = t.get('stream_title', '').strip()
+                if stream_title:
+                    lines = [line.strip() for line in stream_title.split('\n') if line.strip()]
+                    cleaned_lines = []
+                    for line in lines:
+                        if len(line) > 50:
+                            line = line[:47] + "..."
+                        cleaned_lines.append(line)
+                    stream_title = " | ".join(cleaned_lines)
+                    size_str = stream_title
+                else:
+                    size_str = t.get('size', '')
+                    if not size_str and t.get('is_http'): size_str = "Direct Stream"
+                    elif not size_str: size_str = "Unknown Size"
                 
                 seed_str = ""
                 if not t.get('is_http'):
