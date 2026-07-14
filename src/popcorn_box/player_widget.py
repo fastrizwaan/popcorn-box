@@ -148,9 +148,10 @@ class PlayerWidget(Gtk.Box):
             osd_align_y="top",
         )
 
-        self.gl_area.connect("realize",  self._on_realize)
-        self.gl_area.connect("render",   self._on_render)
-        self.gl_area.connect("resize",   self._on_resize)
+        self.gl_area.connect("realize",   self._on_realize)
+        self.gl_area.connect("unrealize", self._on_unrealize)
+        self.gl_area.connect("render",    self._on_render)
+        self.gl_area.connect("resize",    self._on_resize)
 
         # --- Mouse/scroll events on the GL area ---
         motion = Gtk.EventControllerMotion()
@@ -180,6 +181,12 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     def _on_realize(self, area):
         area.make_current()
+        if hasattr(self, 'mpv_ctx') and self.mpv_ctx:
+            try:
+                self.mpv_ctx.free()
+            except Exception:
+                pass
+                
         proc_addr_fn = mpv.MpvGlGetProcAddressFn(
             lambda _inst, name: egl_get_proc_address(name)
         )
@@ -195,6 +202,15 @@ class PlayerWidget(Gtk.Box):
         root = self.get_root()
         if root:
             self._fs_handler_id = root.connect("notify::fullscreened", self._on_window_fullscreen_changed)
+
+    def _on_unrealize(self, area):
+        area.make_current()
+        if hasattr(self, 'mpv_ctx') and self.mpv_ctx:
+            try:
+                self.mpv_ctx.free()
+            except Exception as e:
+                print(f"Error freeing mpv context: {e}")
+            self.mpv_ctx = None
 
     def _on_mpv_fullscreen_change(self, name, value):
         GLib.idle_add(self._sync_fullscreen, value)
