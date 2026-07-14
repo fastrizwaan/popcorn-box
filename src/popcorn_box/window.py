@@ -2800,6 +2800,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             "Movies":  [i for i in items if i.get("type", "movie") == "movie"],
             "Series":  [i for i in items if i.get("type") == "series"],
             "Anime":   [i for i in items if i.get("type") == "anime"],
+            "Live TV": [i for i in items if i.get("type") == "tv"],
         }
 
         has_any = False
@@ -3245,12 +3246,15 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             
         if url.startswith("stremio://"):
             url = "https://" + url[10:]
+            
+        if url.startswith("/"):
+            url = "file://" + url
         
-        if not (url.startswith("http://") or url.startswith("https://")):
+        if not (url.startswith("http://") or url.startswith("https://") or url.startswith("file://")):
             dialog = Adw.MessageDialog(
                 transient_for=self,
                 heading="Invalid URL",
-                body="Please enter a valid HTTP or HTTPS URL."
+                body="Please enter a valid HTTP, HTTPS, or file URL."
             )
             dialog.add_response("ok", "OK")
             dialog.connect("response", lambda d, r: d.destroy())
