@@ -7,7 +7,7 @@ from . import database
 gi.require_version('Gtk', '4.0')
 gi.require_version('Adw', '1')
 gi.require_version('Pango', '1.0')
-from gi.repository import Gtk, Adw, GLib, Gdk, GdkPixbuf, Pango
+from gi.repository import Gtk, Adw, GLib, Gdk, GdkPixbuf, Pango, Gio
 import urllib.request
 import os
 import hashlib
@@ -2115,7 +2115,7 @@ class GlobalPlayerView(Gtk.Box):
             if root:
                 orig_media = getattr(root, 'current_media_type', 'movie')
                 btn = root.get_tab_button(orig_media)
-                for b in [root.movies_btn, root.tv_btn, root.anime_btn, root.fav_btn, 
+                for b in [root.movies_btn, root.tv_btn, root.fav_btn, 
                           root.watched_btn, root.history_btn, root.downloads_btn, root.addons_btn, root.player_btn]:
                     b.remove_css_class("selected")
                 btn.add_css_class("selected")
@@ -2181,7 +2181,7 @@ class GlobalPlayerView(Gtk.Box):
             if root:
                 orig_media = getattr(root, 'current_media_type', 'movie')
                 btn = root.get_tab_button(orig_media)
-                for b in [root.movies_btn, root.tv_btn, root.anime_btn, root.fav_btn, 
+                for b in [root.movies_btn, root.tv_btn, root.fav_btn, 
                           root.watched_btn, root.history_btn, root.downloads_btn, root.addons_btn, root.player_btn]:
                     b.remove_css_class("selected")
                 btn.add_css_class("selected")
@@ -2258,7 +2258,6 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         mapping = {
             "movie": self.movies_btn,
             "series": self.tv_btn,
-            "anime": self.anime_btn,
             "catalogs": getattr(self, "catalogs_btn", self.movies_btn),
             "favorites": self.fav_btn,
             "watched": self.watched_btn,
@@ -2322,11 +2321,6 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         self.tv_btn.set_css_classes(['topbar-item'])
         self.tv_btn.connect("clicked", lambda x: self.switch_category("series", "All", self.tv_btn))
         left_topbar.append(self.tv_btn)
-        
-        self.anime_btn = Gtk.Button(label="Anime")
-        self.anime_btn.set_css_classes(['topbar-item'])
-        self.anime_btn.connect("clicked", lambda x: self.switch_category("anime", "All", self.anime_btn))
-        left_topbar.append(self.anime_btn)
         
         self.catalogs_btn = Gtk.Button(label="Catalogs")
         self.catalogs_btn.set_css_classes(['topbar-item'])
@@ -2433,6 +2427,19 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         right_topbar.append(self.search_revealer)
         right_topbar.append(self.search_btn)
         
+        about_action = Gio.SimpleAction.new("about", None)
+        about_action.connect("activate", self.show_about)
+        self.add_action(about_action)
+
+        menu_model = Gio.Menu()
+        menu_model.append("About Popcorn Box", "win.about")
+        
+        self.menu_btn = Gtk.MenuButton()
+        self.menu_btn.set_icon_name("open-menu-symbolic")
+        self.menu_btn.set_menu_model(menu_model)
+        self.menu_btn.set_css_classes(['flat', 'circular'])
+        right_topbar.append(self.menu_btn)
+        
         def toggle_search(btn):
             is_revealed = self.search_revealer.get_reveal_child()
             self.search_revealer.set_reveal_child(not is_revealed)
@@ -2473,7 +2480,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         
         # Initialize Category pages
         self.category_pages = {}
-        for m in ["movie", "series", "anime", "catalogs", "favorites", "watched", "history", "downloads", "addons"]:
+        for m in ["movie", "series", "catalogs", "favorites", "watched", "history", "downloads", "addons"]:
             page = CategoryGridPage(m, self)
             self.category_pages[m] = page
             self.stack.add_named(page, f"grid_{m}")
@@ -2490,6 +2497,20 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         self.load_category_movies(self.category_pages["movie"])
 
         _install_window_drag(self)
+        
+    def show_about(self, action, param):
+        about = Adw.AboutWindow(
+            application_name="Popcorn Box",
+            application_icon="io.github.fastrizwaan.PopcornBox",
+            developer_name="Mohammed Asif Ali Rizvan",
+            version="1.0",
+            issue_url="https://github.com/fastrizwaan/PopcornBox/issues",
+            website="https://github.com/fastrizwaan/PopcornBox",
+            copyright="© 2024 Mohammed Asif Ali Rizvan",
+            license_type=Gtk.License.GPL_3_0
+        )
+        about.set_transient_for(self)
+        about.present()
         
     def fetch_and_update_genre_counts(self, media_type):
         if media_type in ["favorites", "watched", "history", "downloads"]: return
@@ -2573,7 +2594,6 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             
         self.movies_btn.remove_css_class("selected")
         self.tv_btn.remove_css_class("selected")
-        self.anime_btn.remove_css_class("selected")
         self.fav_btn.remove_css_class("selected")
         self.watched_btn.remove_css_class("selected")
         self.history_btn.remove_css_class("selected")
@@ -3291,7 +3311,8 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     "enabled": True,
                     "catalogs": manifest_data.get("catalogs", []),
                     "resources": manifest_data.get("resources", []),
-                    "types": manifest_data.get("types", [])
+                    "types": manifest_data.get("types", []),
+                    "idPrefixes": manifest_data.get("idPrefixes")
                 }
                 
                 database.add_addon(addon)
