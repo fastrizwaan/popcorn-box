@@ -1,4 +1,7 @@
 # Popcorn Box
+
+![Popcorn Box Screenshot](https://github.com/fastrizwaan/WineCharm/releases/download/1.3/1.png)
+
 A Stremio-compatible native media client built specifically for GNU/Linux using **Python 3**, **GTK4**, and **Libadwaita**.
 
 ### 🛠 Installation & Usage
@@ -18,4 +21,4 @@ Run the application:
 flatpak run io.github.fastrizwaan.PopcornBox
 ```
 
-f- Licensed under the **GPL-3.0-or-later** license. See the `COPYING` file for details.
+Licensed under the **GPL-3.0-or-later** license. See the `COPYING` file for details.
