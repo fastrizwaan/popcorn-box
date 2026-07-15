@@ -3026,6 +3026,33 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 switch.connect("notify::active", lambda sw, pspec, a_id=addon.get("id"): self.toggle_addon(a_id, sw.get_active()))
                 row.append(switch)
                 
+                manifest_url = addon.get("manifest_url", "")
+                if manifest_url and not manifest_url.startswith("builtin:"):
+                    config_btn = Gtk.Button()
+                    config_btn.set_icon_name("emblem-system-symbolic")
+                    config_btn.set_css_classes(["flat"])
+                    config_btn.set_valign(Gtk.Align.CENTER)
+                    config_btn.set_tooltip_text("Configure Addon")
+                    
+                    def on_config_clicked(b, url=manifest_url):
+                        parts = url.split('/')
+                        if len(parts) >= 2 and parts[-1] == "manifest.json":
+                            config_segment = parts[-2]
+                            # Config segments usually contain encoded JSON (%7B), equals (=), or pipes/commas
+                            if any(c in config_segment for c in ['%7B', '=', '%7C', ',', '|', '%22']):
+                                parts.pop(-2)
+                            base_url = "/".join(parts[:-1])
+                            if base_url.endswith("/"):
+                                base_url = base_url[:-1]
+                            import webbrowser
+                            webbrowser.open(f"{base_url}/configure")
+                        else:
+                            import webbrowser
+                            webbrowser.open(url.rsplit("manifest.json", 1)[0])
+                        
+                    config_btn.connect("clicked", on_config_clicked)
+                    row.append(config_btn)
+                
                 copy_btn = Gtk.Button()
                 copy_btn.set_icon_name("edit-copy-symbolic")
                 copy_btn.set_css_classes(["flat"])
@@ -3332,7 +3359,8 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     "catalogs": manifest_data.get("catalogs", []),
                     "resources": manifest_data.get("resources", []),
                     "types": manifest_data.get("types", []),
-                    "idPrefixes": manifest_data.get("idPrefixes")
+                    "idPrefixes": manifest_data.get("idPrefixes"),
+                    "behaviorHints": manifest_data.get("behaviorHints", {})
                 }
                 
                 database.add_addon(addon)
