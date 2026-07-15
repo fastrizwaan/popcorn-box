@@ -160,7 +160,7 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
             for cat_id in search_catalogs:
                 search_url = f"{base_url}catalog/{c_type}/{cat_id}/search={urllib.parse.quote(query)}.json"
                 data = _get_cached_request(search_url, max_age_hours=2, cache_only=cache_only, timeout=3)
-                if data and "metas" in data:
+                if data and isinstance(data.get("metas"), list):
                     addon_items.extend(data["metas"])
             return addon_items
 
@@ -232,7 +232,7 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
             url += ".json"
             
         data = _get_cached_request(url, max_age_hours=2, cache_only=cache_only)
-        if data and "metas" in data:
+        if data and isinstance(data.get("metas"), list):
             movies = []
             for m in data["metas"]:
                 imdb_id = m.get("imdb_id") or m.get("id")

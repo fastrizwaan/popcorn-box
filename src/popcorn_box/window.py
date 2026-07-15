@@ -3377,11 +3377,37 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                     entry_widget.set_sensitive(True)
                     dialog = Adw.MessageDialog(
                         transient_for=self,
-                        heading="Failed to install addon",
-                        body=f"Error: {err_msg}"
+                        heading="Addon Unreachable",
+                        body=f"Could not fetch manifest: {err_msg}\n\nDo you want to force install it as an offline addon?"
                     )
-                    dialog.add_response("ok", "OK")
-                    dialog.connect("response", lambda d, r: d.destroy())
+                    dialog.add_response("cancel", "Cancel")
+                    dialog.add_response("install", "Force Install")
+                    dialog.set_response_appearance("install", Adw.ResponseAppearance.SUGGESTED)
+                    
+                    def on_response(d, response):
+                        if response == "install":
+                            import urllib.parse
+                            domain = urllib.parse.urlparse(url).netloc
+                            addon = {
+                                "id": url,
+                                "name": domain or "Offline Addon",
+                                "version": "0.0.0",
+                                "description": f"Installed offline. Error: {err_msg}",
+                                "icon": "",
+                                "manifest_url": url,
+                                "enabled": True,
+                                "catalogs": [],
+                                "resources": [],
+                                "types": [],
+                                "idPrefixes": [],
+                                "behaviorHints": {}
+                            }
+                            database.add_addon(addon)
+                            entry_widget.set_text("")
+                            self.load_category_movies(self.category_pages["addons"])
+                        d.destroy()
+                        
+                    dialog.connect("response", on_response)
                     dialog.present()
                 GLib.idle_add(on_error)
                 
