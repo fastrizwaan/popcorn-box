@@ -91,11 +91,11 @@ def init_background_downloads():
     from . import database
     downloads = database.get_downloads()
     
-    # Start up to 10 finished downloads, and limit active downloading to 5
+    # Start up to 50 finished downloads, and limit active downloading to 5
     active_count = 0
     max_auto_start = 5
     finished_count = 0
-    max_seeding = 10
+    max_seeding = 50
     
     import time
     for d in downloads:

@@ -174,7 +174,7 @@ class TorrentStreamEngine:
         lt = self.lt
         try:
             settings = {
-                "listen_interfaces": "0.0.0.0:0",
+                "listen_interfaces": "0.0.0.0:6881,0.0.0.0:0",
                 "user_agent": "Transmission 4.1.2",
                 "enable_outgoing_tcp": True,
                 "enable_outgoing_utp": True,
@@ -187,6 +187,10 @@ class TorrentStreamEngine:
                 "dht_bootstrap_nodes": "router.bittorrent.com:6881,router.utorrent.com:6881,dht.transmissionbt.com:6881",
                 "connections_limit": 500,
                 "active_downloads": 20,
+                "active_seeds": 50,
+                "active_limit": 100,
+                "share_ratio_limit": 0.0,
+                "seed_time_ratio_limit": 0.0,
             }
             return lt.session(settings)
         except Exception:
