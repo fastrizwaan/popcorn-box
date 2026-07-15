@@ -2917,15 +2917,15 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         # Header/Input section
         input_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         
-        entry = Gtk.Entry()
+        entry = Gtk.SearchEntry()
         entry.set_placeholder_text("Search or paste Stremio addon manifest URL...")
         entry.set_hexpand(True)
-        entry.connect("activate", lambda e: self.install_addon(e.get_text(), entry))
+        entry.connect("activate", lambda e: self.install_addon(e.get_text(), entry, from_enter=True))
         input_box.append(entry)
         
         install_btn = Gtk.Button(label="Install")
         install_btn.set_css_classes(["suggested-action"])
-        install_btn.connect("clicked", lambda b: self.install_addon(entry.get_text(), entry))
+        install_btn.connect("clicked", lambda b: self.install_addon(entry.get_text(), entry, from_enter=False))
         input_box.append(install_btn)
         
         import_btn = Gtk.Button(label="Import")
@@ -2951,6 +2951,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         else:
             for addon in addons:
                 row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+                row.addon_data = addon
                 row.set_margin_top(8)
                 row.set_margin_bottom(8)
                 row.set_margin_start(12)
@@ -3041,6 +3042,23 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
                 row.append(delete_btn)
                 
                 list_box.append(row)
+            
+            def on_search_changed(search_entry):
+                query = search_entry.get_text().strip().lower()
+                child = list_box.get_first_child()
+                while child:
+                    box = child.get_child()
+                    if hasattr(box, "addon_data"):
+                        addon = box.addon_data
+                        name = addon.get("name", "").lower()
+                        desc = addon.get("description", "").lower()
+                        if not query or query in name or query in desc:
+                            child.set_visible(True)
+                        else:
+                            child.set_visible(False)
+                    child = child.get_next_sibling()
+                    
+            entry.connect("search-changed", on_search_changed)
             
             outer_box.append(list_box)
             
@@ -3259,7 +3277,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
 
 
 
-    def install_addon(self, url, entry_widget):
+    def install_addon(self, url, entry_widget, from_enter=False):
         url = url.strip()
         if not url:
             return
@@ -3271,6 +3289,8 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             url = "file://" + url
         
         if not (url.startswith("http://") or url.startswith("https://") or url.startswith("file://")):
+            if from_enter:
+                return
             dialog = Adw.MessageDialog(
                 transient_for=self,
                 heading="Invalid URL",
