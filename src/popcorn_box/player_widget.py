@@ -137,7 +137,6 @@ class PlayerWidget(Gtk.Box):
         # Screensaver inhibition is handled entirely in Python below.
         self.mpv = mpv.MPV(
             vo="libmpv",
-            stop_screensaver="always",
             osc=True,
             ytdl=True,
             ytdl_raw_options="yes-playlist=",
@@ -427,8 +426,7 @@ class PlayerWidget(Gtk.Box):
         if value and value > 0:
             if not self._playback_started:
                 self._playback_started = True
-                # Now that playback has truly started, ensure we have inhibition
-                GLib.idle_add(self._inhibit_screensaver)
+                GLib.idle_add(self._sync_inhibit)
             self._last_time_pos = value
             
         if not value or not self._current_duration:
@@ -505,8 +503,8 @@ class PlayerWidget(Gtk.Box):
             self.handle_eof_or_idle()
 
     def _on_idle_change(self, name, value):
+        GLib.idle_add(self._sync_inhibit)
         if value:
-            self._uninhibit_screensaver()
             if getattr(self, '_is_playing', False):
                 self._is_playing = False
                 if getattr(self, '_playback_started', False):
@@ -516,299 +514,37 @@ class PlayerWidget(Gtk.Box):
                         GLib.idle_add(self.on_playback_failed)
 
     def _on_pause_change(self, name, value):
-        # Do NOT uninhibit on pause — users may pause to read subtitles, take
-        # a call, etc. and still expect the screen to stay on.  Inhibition is
-        # only released on stop() / destroy() / idle (end-of-file).
-        pass
+        GLib.idle_add(self._sync_inhibit)
 
-    # ------------------------------------------------------------------
-    # Screensaver inhibition — 5-layer nuclear defence
-    #   Layer 1: mpv stop-screensaver=always (set at init)
-    #   Layer 2: GTK app.inhibit() via XDG Inhibit portal
-    #   Layer 3: XDG Desktop Portal org.freedesktop.portal.Inhibit (Flatpak-native)
-    #   Layer 4: D-Bus org.gnome.SessionManager.Inhibit (legacy fallback)
-    #   Layer 5: systemd-inhibit subprocess (nuclear — holds lock via child process)
-    #   + Aggressive 30s keep-alive that re-acquires ALL layers every tick
-    # ------------------------------------------------------------------
-    def _inhibit_screensaver(self):
-        """Acquire screensaver inhibition using ALL available methods simultaneously."""
-        # Layer 2: GTK app.inhibit()
-        if not getattr(self, "_inhibit_cookie", 0):
+    def _sync_inhibit(self):
+        """Screensaver inhibition matching Cine's proven GTK app.inhibit() logic."""
+        try:
+            should_inhibit = not self.mpv.pause and not self.mpv.idle_active
+        except Exception:
+            should_inhibit = False
+
+        if should_inhibit and getattr(self, "_inhibit_cookie", 0) == 0:
             app = Gtk.Application.get_default()
             root = self.get_root()
             if app and root:
                 try:
-                    cookie = app.inhibit(
+                    self._inhibit_cookie = app.inhibit(
                         root,
-                        Gtk.ApplicationInhibitFlags.IDLE | Gtk.ApplicationInhibitFlags.SUSPEND,
-                        "Playing media",
+                        Gtk.ApplicationInhibitFlags.IDLE,
+                        "Playing Media"
                     )
-                    if cookie and cookie != 0:
-                        self._inhibit_cookie = cookie
-                        print(f"[Inhibit] GTK inhibit succeeded, cookie={cookie}")
-                    else:
-                        print("[Inhibit] GTK inhibit returned 0 — portal may have refused")
+                    print(f"[Inhibit] GTK inhibit succeeded, cookie={self._inhibit_cookie}")
                 except Exception as e:
                     print(f"[Inhibit] GTK inhibit failed: {e}")
-            else:
-                print(f"[Inhibit] GTK inhibit skipped (app={bool(app)}, root={bool(root)})")
-
-        # Layer 3: XDG Desktop Portal Inhibit (Flatpak-friendly)
-        if not getattr(self, "_portal_inhibit_fd", None):
-            self._portal_inhibit()
-
-        # Layer 4: D-Bus org.gnome.SessionManager
-        if not getattr(self, "_dbus_inhibit_cookie", 0):
-            self._dbus_inhibit()
-
-        # Layer 5: systemd-inhibit subprocess
-        if not getattr(self, "_systemd_inhibit_proc", None):
-            self._systemd_inhibit_start()
-
-        # Start aggressive keep-alive timer
-        self._start_inhibit_keepalive()
-
-    def _portal_inhibit(self):
-        """Use org.freedesktop.portal.Inhibit — the correct method for Flatpak apps."""
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            proxy = Gio.DBusProxy.new_sync(
-                bus,
-                Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES | Gio.DBusProxyFlags.DO_NOT_CONNECT_SIGNALS,
-                None,
-                "org.freedesktop.portal.Desktop",
-                "/org/freedesktop/portal/desktop",
-                "org.freedesktop.portal.Inhibit",
-                None,
-            )
-            # Inhibit(window_handle, flags, options)
-            # flags: 1=logout, 2=user-switch, 4=suspend, 8=idle
-            # We inhibit both idle (8) and suspend (4) = 12
-            result = proxy.call_sync(
-                "Inhibit",
-                GLib.Variant("(sua{sv})", ("", 12, {"reason": GLib.Variant("s", "Playing media")})),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            handle = result.unpack()[0] if result else None
-            # The portal returns a Request object path; the inhibit stays active
-            # as long as the caller is alive. Store a marker.
-            self._portal_inhibit_fd = handle or "active"
-            print(f"[Inhibit] XDG Portal inhibit succeeded, handle={handle}")
-        except Exception as e:
-            print(f"[Inhibit] XDG Portal inhibit failed: {e}")
-
-    def _portal_uninhibit(self):
-        """Release XDG portal inhibitor by closing the request."""
-        handle = getattr(self, "_portal_inhibit_fd", None)
-        if not handle:
-            return
-        if handle and handle != "active":
-            try:
-                bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-                bus.call_sync(
-                    "org.freedesktop.portal.Desktop",
-                    handle,
-                    "org.freedesktop.portal.Request",
-                    "Close",
-                    None,
-                    None,
-                    Gio.DBusCallFlags.NONE,
-                    -1,
-                    None,
-                )
-                print(f"[Inhibit] XDG Portal uninhibited, handle={handle}")
-            except Exception as e:
-                print(f"[Inhibit] XDG Portal uninhibit failed: {e}")
-        self._portal_inhibit_fd = None
-
-    def _dbus_inhibit(self):
-        """Fallback: call org.gnome.SessionManager.Inhibit via D-Bus."""
-        if getattr(self, "_dbus_inhibit_cookie", 0):
-            return
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            proxy = Gio.DBusProxy.new_sync(
-                bus,
-                Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES | Gio.DBusProxyFlags.DO_NOT_CONNECT_SIGNALS,
-                None,
-                "org.gnome.SessionManager",
-                "/org/gnome/SessionManager",
-                "org.gnome.SessionManager",
-                None,
-            )
-            # Inhibit(app_id, toplevel_xid, reason, flags)
-            # flag 4=INHIBIT_SUSPEND, flag 8=INHIBIT_IDLE → 12 = both
-            result = proxy.call_sync(
-                "Inhibit",
-                GLib.Variant("(susu)", ("io.github.fastrizwaan.PopcornBox", 0, "Playing media", 12)),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            cookie = result.unpack()[0]
-            if cookie:
-                self._dbus_inhibit_cookie = cookie
-                print(f"[Inhibit] D-Bus SessionManager inhibit succeeded, cookie={cookie}")
-            else:
-                print("[Inhibit] D-Bus SessionManager returned cookie 0")
-        except Exception as e:
-            print(f"[Inhibit] D-Bus SessionManager inhibit failed: {e}")
-
-    def _dbus_uninhibit(self):
-        """Release the D-Bus SessionManager inhibitor."""
-        cookie = getattr(self, "_dbus_inhibit_cookie", 0)
-        if not cookie:
-            return
-        try:
-            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
-            proxy = Gio.DBusProxy.new_sync(
-                bus,
-                Gio.DBusProxyFlags.DO_NOT_LOAD_PROPERTIES | Gio.DBusProxyFlags.DO_NOT_CONNECT_SIGNALS,
-                None,
-                "org.gnome.SessionManager",
-                "/org/gnome/SessionManager",
-                "org.gnome.SessionManager",
-                None,
-            )
-            proxy.call_sync(
-                "Uninhibit",
-                GLib.Variant("(u)", (cookie,)),
-                Gio.DBusCallFlags.NONE,
-                -1,
-                None,
-            )
-            print(f"[Inhibit] D-Bus SessionManager uninhibited, cookie={cookie}")
-        except Exception as e:
-            print(f"[Inhibit] D-Bus SessionManager uninhibit failed: {e}")
-        self._dbus_inhibit_cookie = 0
-
-    def _systemd_inhibit_start(self):
-        """Nuclear option: spawn a systemd-inhibit child that holds the lock."""
-        if getattr(self, "_systemd_inhibit_proc", None):
-            return
-        try:
-            proc = subprocess.Popen(
-                [
-                    "systemd-inhibit",
-                    "--what=idle:sleep:handle-lid-switch",
-                    "--who=PopcornBox",
-                    "--why=Playing media",
-                    "--mode=block",
-                    "sleep", "infinity",
-                ],
-                stdin=subprocess.DEVNULL,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                preexec_fn=os.setpgrp,
-            )
-            self._systemd_inhibit_proc = proc
-            print(f"[Inhibit] systemd-inhibit subprocess started, pid={proc.pid}")
-        except FileNotFoundError:
-            print("[Inhibit] systemd-inhibit not found — skipping")
-        except Exception as e:
-            print(f"[Inhibit] systemd-inhibit failed: {e}")
-
-    def _systemd_inhibit_stop(self):
-        """Kill the systemd-inhibit child process."""
-        proc = getattr(self, "_systemd_inhibit_proc", None)
-        if not proc:
-            return
-        try:
-            os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            proc.wait(timeout=2)
-            print(f"[Inhibit] systemd-inhibit subprocess killed, pid={proc.pid}")
-        except Exception as e:
-            try:
-                proc.kill()
-                proc.wait(timeout=1)
-            except Exception:
-                pass
-            print(f"[Inhibit] systemd-inhibit cleanup: {e}")
-        self._systemd_inhibit_proc = None
-
-    def _start_inhibit_keepalive(self):
-        """Start an aggressive periodic timer that ensures inhibition stays active."""
-        if getattr(self, "_inhibit_keepalive_id", None):
-            return  # Already running
-        # 30 seconds — aggressive to catch any dropped inhibitors fast
-        self._inhibit_keepalive_id = GLib.timeout_add_seconds(30, self._keepalive_tick)
-        print("[Inhibit] Keep-alive timer started (every 30s)")
-
-    def _stop_inhibit_keepalive(self):
-        """Stop the keep-alive timer."""
-        kid = getattr(self, "_inhibit_keepalive_id", None)
-        if kid:
-            GLib.source_remove(kid)
-            self._inhibit_keepalive_id = None
-            print("[Inhibit] Keep-alive timer stopped")
-
-    def _keepalive_tick(self):
-        """Called every 30s to forcefully re-acquire any dropped inhibitors."""
-        if not getattr(self, "_is_playing", False):
-            self._inhibit_keepalive_id = None
-            return False  # Stop the timer
-
-        has_gtk = bool(getattr(self, "_inhibit_cookie", 0))
-        has_portal = bool(getattr(self, "_portal_inhibit_fd", None))
-        has_dbus = bool(getattr(self, "_dbus_inhibit_cookie", 0))
-        has_sysd = bool(getattr(self, "_systemd_inhibit_proc", None))
-        # Check if systemd process is still alive
-        if has_sysd and self._systemd_inhibit_proc.poll() is not None:
-            self._systemd_inhibit_proc = None
-            has_sysd = False
-        print(f"[Inhibit] Tick — GTK:{has_gtk} Portal:{has_portal} DBus:{has_dbus} Systemd:{has_sysd}")
-
-        # Re-acquire anything that's missing
-        if not has_gtk:
-            app = Gtk.Application.get_default()
-            root = self.get_root()
-            if app and root:
-                try:
-                    cookie = app.inhibit(
-                        root,
-                        Gtk.ApplicationInhibitFlags.IDLE | Gtk.ApplicationInhibitFlags.SUSPEND,
-                        "Playing media",
-                    )
-                    if cookie and cookie != 0:
-                        self._inhibit_cookie = cookie
-                        print(f"[Inhibit] Tick re-acquired GTK inhibit, cookie={cookie}")
-                except Exception:
-                    pass
-        if not has_portal:
-            self._portal_inhibit()
-        if not has_dbus:
-            self._dbus_inhibit()
-        if not has_sysd:
-            self._systemd_inhibit_start()
-
-        return True  # Keep the timer running
-
-    def _uninhibit_screensaver(self):
-        """Release ALL screensaver inhibitors and stop the keep-alive timer."""
-        self._stop_inhibit_keepalive()
-
-        # Release GTK inhibitor
-        cookie = getattr(self, "_inhibit_cookie", 0)
-        if cookie:
+        elif not should_inhibit and getattr(self, "_inhibit_cookie", 0) != 0:
             app = Gtk.Application.get_default()
             if app:
                 try:
-                    app.uninhibit(cookie)
-                    print(f"[Inhibit] GTK uninhibited, cookie={cookie}")
+                    app.uninhibit(self._inhibit_cookie)
+                    print(f"[Inhibit] GTK uninhibited, cookie={self._inhibit_cookie}")
                 except Exception as e:
                     print(f"[Inhibit] GTK uninhibit failed: {e}")
             self._inhibit_cookie = 0
-
-        # Release XDG Portal inhibitor
-        self._portal_uninhibit()
-
-        # Release D-Bus inhibitor
-        self._dbus_uninhibit()
-
-        # Kill systemd-inhibit subprocess
-        self._systemd_inhibit_stop()
 
     # ------------------------------------------------------------------
     # Public API
@@ -856,7 +592,7 @@ class PlayerWidget(Gtk.Box):
     def _try_initial_inhibit(self):
         """Called 500ms after play() to try inhibiting once the widget is likely realized."""
         if getattr(self, "_is_playing", False):
-            self._inhibit_screensaver()
+            self._sync_inhibit()
         return False  # Do not repeat
 
     def play(self, url, sub_file=None):
@@ -903,12 +639,12 @@ class PlayerWidget(Gtk.Box):
 
     def stop(self):
         self._is_playing = False
-        self._uninhibit_screensaver()
+        self._sync_inhibit()
         if HAS_MPV:
             self.mpv.stop()
 
     def destroy(self):
-        self._uninhibit_screensaver()
+        self._sync_inhibit()
         if hasattr(self, '_fs_handler_id'):
             root = self.get_root()
             if root:
