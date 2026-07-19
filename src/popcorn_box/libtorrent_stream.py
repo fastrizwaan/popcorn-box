@@ -61,6 +61,22 @@ class TorrentStreamEngine:
         self.last_priority_window = []
         self._stream_gen = 0  # incremented on each new /stream request
 
+        # Cached upload/download totals loaded from DB at start; updated by monitor
+        self._stored_ul = 0
+        self._stored_dl = 0
+        self._load_stored_stats()
+
+    def _load_stored_stats(self):
+        """Load persisted upload/download totals from DB once at engine creation."""
+        try:
+            for d in database.get_downloads():
+                if d.get("info_hash") == self.info_hash:
+                    self._stored_ul = d.get("all_time_upload", 0) or 0
+                    self._stored_dl = d.get("all_time_download", 0) or 0
+                    break
+        except Exception:
+            pass
+
     def start(self):
         os.makedirs(self.session_dir, exist_ok=True)
         try:
@@ -83,9 +99,9 @@ class TorrentStreamEngine:
         self._start_monitor()
         return self.stream_url
 
-    def stop(self):
+    def stop(self, save_timeout=2):
         self.stopped.set()
-        self._save_resume_data(timeout=6)
+        self._save_resume_data(timeout=save_timeout)
         if self.httpd:
             try:
                 self.httpd.shutdown()
@@ -127,9 +143,13 @@ class TorrentStreamEngine:
 
             status = self._status()
             has_metadata = bool(getattr(status, "has_metadata", False))
-            dl = getattr(status, "all_time_download", 0)
-            ul = getattr(status, "all_time_upload", 0)
-            
+            session_dl = getattr(status, "all_time_download", 0) or 0
+            session_ul = getattr(status, "all_time_upload", 0) or 0
+
+            # Use cached stored totals — no DB read here (updated every 30s by monitor)
+            total_dl = max(session_dl, self._stored_dl)
+            total_ul = max(session_ul, self._stored_ul)
+
             data = {
                 "name": getattr(status, "name", "") or "",
                 "infoHash": self.info_hash or "",
@@ -144,7 +164,7 @@ class TorrentStreamEngine:
                 "activePeers": int(getattr(status, "num_peers", 0) or 0),
                 "totalPeers": int(getattr(status, "num_peers", 0) or 0),
                 "seeds": int(getattr(status, "num_seeds", 0) or 0),
-                "ratio": float(ul / dl) if dl > 0 else 0.0,
+                "ratio": float(total_ul / total_dl) if total_dl > 0 else 0.0,
                 "status": self._state_text(status, has_metadata),
             }
 
@@ -163,6 +183,7 @@ class TorrentStreamEngine:
                 data["progress"] = getattr(status, "progress", 0)
 
             return data
+
 
     def wait_ready(self, timeout=None):
         return self.ready_event.wait(timeout)
@@ -390,16 +411,38 @@ class TorrentStreamEngine:
     def _start_monitor(self):
         def monitor_worker():
             from . import database
+            last_save_time = time.time()
+            last_stats_save_time = time.time()
             while not self.stopped.is_set():
                 try:
                     stats = self.stats()
                     if stats.get("progress", 0) >= 1.0:
                         database.set_download_finished(self.info_hash, True)
-                    # We no longer stop engines based on seed ratio as requested.
+
+                    # Persist upload/download totals every 30 s for ratio persistence
+                    now = time.time()
+                    if now - last_stats_save_time > 30:
+                        try:
+                            status = self._status()
+                            ul = getattr(status, "all_time_upload", 0) or 0
+                            dl = getattr(status, "all_time_download", 0) or 0
+                            if ul > 0 or dl > 0:
+                                # Update in-memory cache immediately
+                                self._stored_ul = max(self._stored_ul, ul)
+                                self._stored_dl = max(self._stored_dl, dl)
+                                database.update_download_stats(self.info_hash, ul, dl)
+                        except Exception:
+                            pass
+                        last_stats_save_time = now
+
+                    if now - last_save_time > 60:
+                        self._save_resume_data(timeout=2)
+                        last_save_time = now
                 except Exception:
                     pass
                 time.sleep(10)
         threading.Thread(target=monitor_worker, daemon=True).start()
+
 
     def _status(self):
         try:
@@ -913,7 +956,7 @@ class TorrentStreamEngine:
             time.sleep(0.05)
         return False
 
-    def _save_resume_data(self, timeout=6):
+    def _save_resume_data(self, timeout=2):
         if not self.handle or not self.lt:
             return
         try:

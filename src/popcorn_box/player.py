@@ -72,13 +72,36 @@ def stop_engine_explicit(info_hash):
 def exit_player():
     from . import database
     database.flush_progress()
+
+    # Persist upload/download stats for all running engines before stopping
+    with _engines_lock:
+        for info_hash, engine in list(_engines.items()):
+            try:
+                status = engine._status()
+                ul = getattr(status, "all_time_upload", 0) or 0
+                dl = getattr(status, "all_time_download", 0) or 0
+                if ul > 0 or dl > 0:
+                    database.update_download_stats(info_hash, ul, dl)
+            except Exception:
+                pass
+
+    threads = []
     with _engines_lock:
         for info_hash, engine in _engines.items():
             try:
-                engine.stop()
+                # Use a short save_timeout so each stop() is fast
+                t = threading.Thread(target=engine.stop, kwargs={"save_timeout": 2}, daemon=True)
+                t.start()
+                threads.append(t)
             except Exception:
                 pass
         _engines.clear()
+
+    # Wait at most 3 s total for all stop threads to finish
+    deadline = time.time() + 3.0
+    for t in threads:
+        remaining = max(0.0, deadline - time.time())
+        t.join(timeout=remaining)
 
 atexit.register(exit_player)
 

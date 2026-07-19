@@ -1800,14 +1800,26 @@ class DownloadItemWidget(Gtk.Box):
         else:
             self.play_btn.set_visible(True)
             self.stop_btn.set_visible(False)
-            
+
             path = os.path.join(player.DOWNLOAD_BASE, self.info_hash)
             if os.path.exists(path):
-                self.status_label.set_text("Paused")
+                # Show stored ratio from database if available
+                stored_ratio_text = ""
+                try:
+                    for d in database.get_downloads():
+                        if d.get("info_hash") == self.info_hash:
+                            ul = d.get("all_time_upload", 0) or 0
+                            dl = d.get("all_time_download", 0) or 0
+                            if dl > 0:
+                                stored_ratio_text = f" | Ratio: {ul/dl:.2f}"
+                            break
+                except Exception:
+                    pass
+                self.status_label.set_text(f"Paused{stored_ratio_text}")
             else:
                 self.status_label.set_text("Not Downloaded")
                 self.progress_bar.set_fraction(0.0)
-                
+
         return True
         
     def on_play_clicked(self, btn):
@@ -3265,10 +3277,99 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         GLib.idle_add(lambda: active_page.scrolled.get_vadjustment().set_value(active_page.saved_scroll_pos) or False)
 
     def on_close_request(self, *args):
-        player.stop_player()
-        import os
-        os._exit(0)
-        return False
+        # Suppress the default close so we can show a progress dialog
+        self._do_graceful_exit()
+        return True  # prevent immediate destroy
+
+    def _do_graceful_exit(self):
+        import os as _os
+
+        # ── Build a minimal "closing" overlay dialog ──────────────────────
+        dialog = Adw.AlertDialog()
+        dialog.set_heading("Closing Popcorn Box")
+        dialog.set_body("Saving progress and stopping torrents…")
+
+        spinner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+        spinner_box.set_halign(Gtk.Align.CENTER)
+        spinner_box.set_margin_top(8)
+        spinner_box.set_margin_bottom(4)
+
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(24, 24)
+        spinner.start()
+        spinner_box.append(spinner)
+
+        status_label = Gtk.Label(label="Preparing to close…")
+        status_label.set_css_classes(["dim-label"])
+        spinner_box.append(status_label)
+
+        dialog.set_extra_child(spinner_box)
+        dialog.present(self)
+
+        # ── PHASE 1 (GTK main thread) — instant, thread-safe operations ──
+        # All D-Bus / screensaver uninhibit calls MUST happen here.
+        # Doing them from a background thread is not GTK-thread-safe and
+        # can deadlock the main loop, freezing the spinner.
+        try:
+            status_label.set_text("Stopping player…")
+            if hasattr(self, "global_player") and self.global_player:
+                pw = self.global_player.player_widget
+                if pw:
+                    try:
+                        pw.stop()   # stops MPV + releases D-Bus screensaver inhibitors
+                    except Exception:
+                        pass
+            player.stop_player()  # marks the streaming engine as paused
+        except Exception:
+            pass
+
+        # Flush progress and snapshot upload/download stats (fast: in-memory
+        # read + one DB write, no libtorrent blocking)
+        try:
+            from . import database as _db
+            _db.flush_progress()
+            with player._engines_lock:
+                for ih, eng in list(player._engines.items()):
+                    try:
+                        st = eng._status()
+                        ul = getattr(st, "all_time_upload", 0) or 0
+                        dl = getattr(st, "all_time_download", 0) or 0
+                        if ul > 0 or dl > 0:
+                            eng._stored_ul = max(eng._stored_ul, ul)
+                            eng._stored_dl = max(eng._stored_dl, dl)
+                            _db.update_download_stats(ih, ul, dl)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
+
+        status_label.set_text("Saving torrent state…")
+
+        # ── PHASE 2 (background thread) — slow libtorrent I/O ────────────
+        # The GTK main loop is now completely free — the spinner animates.
+        def _shutdown_thread():
+            try:
+                player.exit_player()  # saves fast-resume, shuts HTTP servers
+            except Exception:
+                pass
+            finally:
+                GLib.idle_add(_finish)
+
+        def _finish():
+            spinner.stop()
+            _os._exit(0)
+            return False
+
+        # Safety net: force-exit after 5 s even if libtorrent hangs
+        def _force_exit():
+            _os._exit(0)
+            return False
+
+        GLib.timeout_add(5000, _force_exit)
+
+        import threading
+        threading.Thread(target=_shutdown_thread, daemon=True).start()
+
 
     def _is_player_visible(self):
         """True when the global player view is active."""

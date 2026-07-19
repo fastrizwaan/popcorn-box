@@ -229,6 +229,20 @@ def set_download_finished(info_hash, finished):
                 d["finished"] = finished
         _write_db(db)
 
+def update_download_stats(info_hash, all_time_upload, all_time_download):
+    """Persist cumulative upload/download bytes so ratio survives app restarts."""
+    with _db_lock:
+        db = _read_db()
+        for d in db.get("downloads", []):
+            if d.get("info_hash") == info_hash:
+                # Only update if the new values are strictly larger (never go backwards)
+                if all_time_upload > d.get("all_time_upload", 0):
+                    d["all_time_upload"] = int(all_time_upload)
+                if all_time_download > d.get("all_time_download", 0):
+                    d["all_time_download"] = int(all_time_download)
+                _write_db(db)
+                return
+
 def remove_download(info_hash):
     with _db_lock:
         db = _read_db()
