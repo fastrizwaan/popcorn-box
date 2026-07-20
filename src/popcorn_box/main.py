@@ -15,7 +15,7 @@ from popcorn_box.window import PopcornBoxWindow
 class PopcornBoxApp(Adw.Application):
     def __init__(self):
         super().__init__(application_id='io.github.fastrizwaan.PopcornBox',
-                         flags=Gio.ApplicationFlags.NON_UNIQUE)
+                         flags=Gio.ApplicationFlags.FLAGS_NONE)
 
     def do_activate(self):
         # Legacy cleanup removed as /var/tmp is no longer accessed
