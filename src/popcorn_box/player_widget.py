@@ -708,17 +708,9 @@ class PlayerWidget(Gtk.Box):
         except Exception:
             should_inhibit = False
         if should_inhibit:
-            # Check if GTK still thinks we're inhibited
-            app = Gtk.Application.get_default()
-            if app:
-                gtk_active = app.is_inhibited(Gtk.ApplicationInhibitFlags.IDLE)
-                if not gtk_active:
-                    print("[Inhibit] WARNING: GTK reports NOT inhibited! Re-acquiring all...")
-                    # Force re-acquire by clearing cookies
-                    self._inhibit_cookie = 0
-                    self._dbus_inhibit_cookie = 0
-                    self._gnome_inhibit_cookie = 0
-            # Re-acquire any inhibitors that were silently dropped
+            # Force release and re-acquire all inhibitors every 30s
+            # to guarantee they haven't been silently dropped by the compositor
+            self._release_all_inhibitors()
             self._acquire_all_inhibitors()
         return True  # Keep timer alive
 
