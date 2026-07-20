@@ -588,7 +588,7 @@ class PlayerWidget(Gtk.Box):
 
     def _acquire_all_inhibitors(self):
         """Acquire all available inhibition methods."""
-        # Method 1: GTK app.inhibit()
+        # Method 1: GTK app.inhibit() — inhibit BOTH idle and suspend
         if getattr(self, '_inhibit_cookie', 0) == 0:
             app = Gtk.Application.get_default()
             root = self.get_root()
@@ -596,10 +596,13 @@ class PlayerWidget(Gtk.Box):
                 try:
                     self._inhibit_cookie = app.inhibit(
                         root,
-                        Gtk.ApplicationInhibitFlags.IDLE,
+                        Gtk.ApplicationInhibitFlags.IDLE | Gtk.ApplicationInhibitFlags.SUSPEND,
                         "Playing Media"
                     )
-                    print(f"[Inhibit] GTK inhibit succeeded, cookie={self._inhibit_cookie}")
+                    if self._inhibit_cookie == 0:
+                        print("[Inhibit] WARNING: GTK inhibit returned cookie=0, inhibition may not be active!")
+                    else:
+                        print(f"[Inhibit] GTK inhibit succeeded, cookie={self._inhibit_cookie}")
                 except Exception as e:
                     print(f"[Inhibit] GTK inhibit failed: {e}")
 
@@ -621,7 +624,7 @@ class PlayerWidget(Gtk.Box):
             except Exception as e:
                 print(f"[Inhibit] D-Bus ScreenSaver inhibit failed: {e}")
 
-        # Method 3: D-Bus org.gnome.SessionManager.Inhibit
+        # Method 3: D-Bus org.gnome.SessionManager.Inhibit (flags: 4=suspend + 8=idle = 12)
         if getattr(self, '_gnome_inhibit_cookie', 0) == 0:
             try:
                 bus = Gio.bus_get_sync(Gio.BusType.SESSION)
@@ -630,7 +633,7 @@ class PlayerWidget(Gtk.Box):
                     "/org/gnome/SessionManager",
                     "org.gnome.SessionManager",
                     "Inhibit",
-                    GLib.Variant("(susu)", ("PopcornBox", 0, "Playing Media", 8)),
+                    GLib.Variant("(susu)", ("PopcornBox", 0, "Playing Media", 12)),
                     GLib.VariantType("(u)"),
                     Gio.DBusCallFlags.NONE, -1, None
                 )
@@ -705,6 +708,16 @@ class PlayerWidget(Gtk.Box):
         except Exception:
             should_inhibit = False
         if should_inhibit:
+            # Check if GTK still thinks we're inhibited
+            app = Gtk.Application.get_default()
+            if app:
+                gtk_active = app.is_inhibited(Gtk.ApplicationInhibitFlags.IDLE)
+                if not gtk_active:
+                    print("[Inhibit] WARNING: GTK reports NOT inhibited! Re-acquiring all...")
+                    # Force re-acquire by clearing cookies
+                    self._inhibit_cookie = 0
+                    self._dbus_inhibit_cookie = 0
+                    self._gnome_inhibit_cookie = 0
             # Re-acquire any inhibitors that were silently dropped
             self._acquire_all_inhibitors()
         return True  # Keep timer alive
