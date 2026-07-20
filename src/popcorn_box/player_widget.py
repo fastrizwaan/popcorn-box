@@ -1,8 +1,6 @@
 import gi
 import ctypes
 import os
-import subprocess
-import signal
 from gi.repository import Gdk, Gio, GLib, Gtk
 
 try:
@@ -105,9 +103,10 @@ class PlayerWidget(Gtk.Box):
         self._playback_started = False
         self._inhibit_cookie = 0
         self._dbus_inhibit_cookie = 0
-        self._portal_inhibit_fd = None
-        self._systemd_inhibit_proc = None
+        self._gnome_inhibit_cookie = 0
         self._inhibit_keepalive_id = None
+        self._gl_health_id = None
+        self._render_fail_count = 0
         
         self.up_next_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         self.up_next_box.set_halign(Gtk.Align.END)
@@ -185,12 +184,23 @@ class PlayerWidget(Gtk.Box):
     # ------------------------------------------------------------------
     def _on_realize(self, area):
         area.make_current()
+        self._init_mpv_render_context()
+
+        root = self.get_root()
+        if root:
+            self._fs_handler_id = root.connect("notify::fullscreened", self._on_window_fullscreen_changed)
+            # Monitor focus to recover GL context after screen blank
+            self._focus_handler_id = root.connect("notify::is-active", self._on_window_active_changed)
+
+    def _init_mpv_render_context(self):
+        """Create (or re-create) the MpvRenderContext. Safe to call multiple times."""
         if hasattr(self, 'mpv_ctx') and self.mpv_ctx:
             try:
                 self.mpv_ctx.free()
             except Exception:
                 pass
-                
+            self.mpv_ctx = None
+
         proc_addr_fn = mpv.MpvGlGetProcAddressFn(
             lambda _inst, name: egl_get_proc_address(name)
         )
@@ -202,10 +212,8 @@ class PlayerWidget(Gtk.Box):
             self.gl_area.queue_render
         )
         self.fbo = ctypes.c_int()
-
-        root = self.get_root()
-        if root:
-            self._fs_handler_id = root.connect("notify::fullscreened", self._on_window_fullscreen_changed)
+        self._render_fail_count = 0
+        print("[GL] MpvRenderContext initialized")
 
     def _on_unrealize(self, area):
         area.make_current()
@@ -215,6 +223,15 @@ class PlayerWidget(Gtk.Box):
             except Exception as e:
                 print(f"Error freeing mpv context: {e}")
             self.mpv_ctx = None
+
+    def _on_window_active_changed(self, window, pspec):
+        """When window regains focus (e.g. after screen unblank), recover GL context."""
+        if not window.props.is_active:
+            return
+        if not getattr(self, '_is_playing', False):
+            return
+        # Schedule recovery check shortly after focus returns
+        GLib.timeout_add(200, self._check_and_recover_gl)
 
     def _on_mpv_fullscreen_change(self, name, value):
         GLib.idle_add(self._sync_fullscreen, value)
@@ -244,6 +261,8 @@ class PlayerWidget(Gtk.Box):
             h = int(area.get_height() * area.props.scale_factor)
             if w <= 0 or h <= 0:
                 return
+            if not hasattr(self, 'mpv_ctx') or not self.mpv_ctx:
+                return
             glGetIntegerv(GL_FRAMEBUFFER_BINDING, self.fbo)
             self.mpv_ctx.render(
                 flip_y=True,
@@ -253,8 +272,13 @@ class PlayerWidget(Gtk.Box):
                     "fbo": self.fbo.value,
                 },
             )
+            self._render_fail_count = 0  # Reset on success
         except Exception as e:
-            print(f"MPV render error: {e}")
+            self._render_fail_count = getattr(self, '_render_fail_count', 0) + 1
+            print(f"MPV render error ({self._render_fail_count}): {e}")
+            if self._render_fail_count >= 3 and getattr(self, '_is_playing', False):
+                print("[GL] Multiple render failures detected, scheduling recovery")
+                GLib.timeout_add(100, self._check_and_recover_gl)
 
     def _on_resize(self, area, w, h):
         self.gl_area.queue_render()
@@ -516,14 +540,56 @@ class PlayerWidget(Gtk.Box):
     def _on_pause_change(self, name, value):
         GLib.idle_add(self._sync_inhibit)
 
+    def _check_and_recover_gl(self):
+        """Check if the GL render context is alive; rebuild it if not."""
+        if not getattr(self, '_is_playing', False):
+            return False
+        if not hasattr(self, 'gl_area') or not self.gl_area.get_realized():
+            return False
+        try:
+            self.gl_area.make_current()
+            if not hasattr(self, 'mpv_ctx') or not self.mpv_ctx:
+                print("[GL] Render context is None, rebuilding...")
+                self._init_mpv_render_context()
+                self.gl_area.queue_render()
+                return False
+            # Try a test render to verify the context is alive
+            glGetIntegerv(GL_FRAMEBUFFER_BINDING, self.fbo)
+            self.gl_area.queue_render()
+        except Exception as e:
+            print(f"[GL] Context health check failed: {e}, rebuilding...")
+            try:
+                self._init_mpv_render_context()
+                self.gl_area.queue_render()
+            except Exception as e2:
+                print(f"[GL] Recovery failed: {e2}")
+        return False  # Don't repeat
+
+    def _gl_health_tick(self):
+        """Periodic GL health check while playing (every 5 seconds)."""
+        if not getattr(self, '_is_playing', False):
+            self._gl_health_id = None
+            return False
+        if hasattr(self, 'gl_area') and self.gl_area.get_realized():
+            self.gl_area.queue_render()
+        return True  # Keep repeating while playing
+
     def _sync_inhibit(self):
-        """Screensaver inhibition matching Cine's proven GTK app.inhibit() logic."""
+        """Multi-method screensaver inhibition: GTK + D-Bus ScreenSaver + GNOME SessionManager."""
         try:
             should_inhibit = not self.mpv.pause and not self.mpv.idle_active
         except Exception:
             should_inhibit = False
 
-        if should_inhibit and getattr(self, "_inhibit_cookie", 0) == 0:
+        if should_inhibit:
+            self._acquire_all_inhibitors()
+        else:
+            self._release_all_inhibitors()
+
+    def _acquire_all_inhibitors(self):
+        """Acquire all available inhibition methods."""
+        # Method 1: GTK app.inhibit()
+        if getattr(self, '_inhibit_cookie', 0) == 0:
             app = Gtk.Application.get_default()
             root = self.get_root()
             if app and root:
@@ -536,7 +602,56 @@ class PlayerWidget(Gtk.Box):
                     print(f"[Inhibit] GTK inhibit succeeded, cookie={self._inhibit_cookie}")
                 except Exception as e:
                     print(f"[Inhibit] GTK inhibit failed: {e}")
-        elif not should_inhibit and getattr(self, "_inhibit_cookie", 0) != 0:
+
+        # Method 2: D-Bus org.freedesktop.ScreenSaver.Inhibit
+        if getattr(self, '_dbus_inhibit_cookie', 0) == 0:
+            try:
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+                result = bus.call_sync(
+                    "org.freedesktop.ScreenSaver",
+                    "/org/freedesktop/ScreenSaver",
+                    "org.freedesktop.ScreenSaver",
+                    "Inhibit",
+                    GLib.Variant("(ss)", ("PopcornBox", "Playing Media")),
+                    GLib.VariantType("(u)"),
+                    Gio.DBusCallFlags.NONE, -1, None
+                )
+                self._dbus_inhibit_cookie = result.unpack()[0]
+                print(f"[Inhibit] D-Bus ScreenSaver inhibit succeeded, cookie={self._dbus_inhibit_cookie}")
+            except Exception as e:
+                print(f"[Inhibit] D-Bus ScreenSaver inhibit failed: {e}")
+
+        # Method 3: D-Bus org.gnome.SessionManager.Inhibit
+        if getattr(self, '_gnome_inhibit_cookie', 0) == 0:
+            try:
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+                result = bus.call_sync(
+                    "org.gnome.SessionManager",
+                    "/org/gnome/SessionManager",
+                    "org.gnome.SessionManager",
+                    "Inhibit",
+                    GLib.Variant("(susu)", ("PopcornBox", 0, "Playing Media", 8)),
+                    GLib.VariantType("(u)"),
+                    Gio.DBusCallFlags.NONE, -1, None
+                )
+                self._gnome_inhibit_cookie = result.unpack()[0]
+                print(f"[Inhibit] GNOME SessionManager inhibit succeeded, cookie={self._gnome_inhibit_cookie}")
+            except Exception as e:
+                print(f"[Inhibit] GNOME SessionManager inhibit failed: {e}")
+
+        # Start keep-alive timer if not already running
+        if not getattr(self, '_inhibit_keepalive_id', None):
+            self._inhibit_keepalive_id = GLib.timeout_add_seconds(30, self._inhibit_keepalive)
+
+    def _release_all_inhibitors(self):
+        """Release all inhibition methods."""
+        # Stop keep-alive timer
+        if getattr(self, '_inhibit_keepalive_id', None):
+            GLib.source_remove(self._inhibit_keepalive_id)
+            self._inhibit_keepalive_id = None
+
+        # Method 1: GTK
+        if getattr(self, '_inhibit_cookie', 0) != 0:
             app = Gtk.Application.get_default()
             if app:
                 try:
@@ -545,6 +660,54 @@ class PlayerWidget(Gtk.Box):
                 except Exception as e:
                     print(f"[Inhibit] GTK uninhibit failed: {e}")
             self._inhibit_cookie = 0
+
+        # Method 2: D-Bus ScreenSaver
+        if getattr(self, '_dbus_inhibit_cookie', 0) != 0:
+            try:
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+                bus.call_sync(
+                    "org.freedesktop.ScreenSaver",
+                    "/org/freedesktop/ScreenSaver",
+                    "org.freedesktop.ScreenSaver",
+                    "UnInhibit",
+                    GLib.Variant("(u)", (self._dbus_inhibit_cookie,)),
+                    None, Gio.DBusCallFlags.NONE, -1, None
+                )
+                print(f"[Inhibit] D-Bus ScreenSaver uninhibited, cookie={self._dbus_inhibit_cookie}")
+            except Exception as e:
+                print(f"[Inhibit] D-Bus ScreenSaver uninhibit failed: {e}")
+            self._dbus_inhibit_cookie = 0
+
+        # Method 3: GNOME SessionManager
+        if getattr(self, '_gnome_inhibit_cookie', 0) != 0:
+            try:
+                bus = Gio.bus_get_sync(Gio.BusType.SESSION)
+                bus.call_sync(
+                    "org.gnome.SessionManager",
+                    "/org/gnome/SessionManager",
+                    "org.gnome.SessionManager",
+                    "Uninhibit",
+                    GLib.Variant("(u)", (self._gnome_inhibit_cookie,)),
+                    None, Gio.DBusCallFlags.NONE, -1, None
+                )
+                print(f"[Inhibit] GNOME SessionManager uninhibited, cookie={self._gnome_inhibit_cookie}")
+            except Exception as e:
+                print(f"[Inhibit] GNOME SessionManager uninhibit failed: {e}")
+            self._gnome_inhibit_cookie = 0
+
+    def _inhibit_keepalive(self):
+        """Every 30s, verify inhibition is still active and re-acquire if needed."""
+        if not getattr(self, '_is_playing', False):
+            self._inhibit_keepalive_id = None
+            return False  # Stop timer
+        try:
+            should_inhibit = not self.mpv.pause and not self.mpv.idle_active
+        except Exception:
+            should_inhibit = False
+        if should_inhibit:
+            # Re-acquire any inhibitors that were silently dropped
+            self._acquire_all_inhibitors()
+        return True  # Keep timer alive
 
     # ------------------------------------------------------------------
     # Public API
@@ -600,11 +763,15 @@ class PlayerWidget(Gtk.Box):
         self._playback_started = False
         self.keep_downloading = False
         self._up_next_triggered = False
+        self._render_fail_count = 0
         GLib.idle_add(self.up_next_box.set_visible, False)
         # Inhibition is deferred to _on_time_pos (when playback actually starts)
         # to guarantee the widget is realized and get_root() returns a valid window.
         # But try now as well — belt and suspenders.
         GLib.timeout_add(500, self._try_initial_inhibit)
+        # Start periodic GL health check
+        if not getattr(self, '_gl_health_id', None):
+            self._gl_health_id = GLib.timeout_add_seconds(5, self._gl_health_tick)
         self.apply_audio_norm()
         
         start_pos = 0
@@ -639,17 +806,31 @@ class PlayerWidget(Gtk.Box):
 
     def stop(self):
         self._is_playing = False
+        # Stop GL health timer
+        if getattr(self, '_gl_health_id', None):
+            GLib.source_remove(self._gl_health_id)
+            self._gl_health_id = None
         self._sync_inhibit()
         if HAS_MPV:
             self.mpv.stop()
 
     def destroy(self):
-        self._sync_inhibit()
-        if hasattr(self, '_fs_handler_id'):
-            root = self.get_root()
-            if root:
+        self._is_playing = False
+        # Stop all timers
+        if getattr(self, '_gl_health_id', None):
+            GLib.source_remove(self._gl_health_id)
+            self._gl_health_id = None
+        self._release_all_inhibitors()
+        root = self.get_root()
+        if root:
+            if hasattr(self, '_fs_handler_id'):
                 try:
                     root.disconnect(self._fs_handler_id)
+                except Exception:
+                    pass
+            if hasattr(self, '_focus_handler_id'):
+                try:
+                    root.disconnect(self._focus_handler_id)
                 except Exception:
                     pass
         if HAS_MPV:
