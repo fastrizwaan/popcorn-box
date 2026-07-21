@@ -166,22 +166,25 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
             future_to_addon = {executor.submit(fetch_addon_search, addon): addon for addon in database.get_addons()}
-            for future in concurrent.futures.as_completed(future_to_addon):
-                try:
-                    addon_items = future.result()
-                    for m in addon_items:
-                        imdb_id = m.get("imdb_id") or m.get("id")
-                        if imdb_id and imdb_id not in seen_ids:
-                            seen_ids.add(imdb_id)
-                            items.append({
-                                "id": imdb_id,
-                                "title": m.get("name", ""),
-                                "year": str(m.get("releaseInfo", "")).split("-")[0] if m.get("releaseInfo") else "",
-                                "medium_cover_image": m.get("poster", ""),
-                                "type": media_type
-                            })
-                except Exception:
-                    pass
+            try:
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=15):
+                    try:
+                        addon_items = future.result()
+                        for m in addon_items:
+                            imdb_id = m.get("imdb_id") or m.get("id")
+                            if imdb_id and imdb_id not in seen_ids:
+                                seen_ids.add(imdb_id)
+                                items.append({
+                                    "id": imdb_id,
+                                    "title": m.get("name", ""),
+                                    "year": str(m.get("releaseInfo", "")).split("-")[0] if m.get("releaseInfo") else "",
+                                    "medium_cover_image": m.get("poster", ""),
+                                    "type": media_type
+                                })
+                    except Exception:
+                        pass
+            except concurrent.futures.TimeoutError:
+                pass
                     
         return items
 
@@ -322,16 +325,15 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
             imdb_id = resolved_id
 
 
-    for addon in database.get_addons():
-        print("FMD Checking:", addon.get("id"), "enabled:", addon.get("enabled"), "url:", addon.get("manifest_url"))
-        if not addon.get("enabled", True): continue
+    def fetch_addon_meta(addon):
+        if not addon.get("enabled", True): return None
         m_url = addon.get("manifest_url", "")
-        if not m_url: continue
+        if not m_url: return None
         
         if addon.get("id") == "local.iptv-org":
-            continue
+            return None
 
-        if m_url.startswith("builtin:"): continue
+        if m_url.startswith("builtin:"): return None
         
         resources = addon.get("resources")
         addon_types = addon.get("types")
@@ -351,11 +353,11 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 pass
                 
         if addon_types is not None and c_type not in addon_types:
-            continue
+            return None
             
         if addon_prefixes is not None:
             if not any(str(imdb_id).startswith(p) for p in addon_prefixes):
-                continue
+                return None
                 
         if resources is not None:
             has_meta = False
@@ -365,7 +367,7 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 elif isinstance(r, dict) and r.get("name") == "meta":
                     has_meta = True
             if not has_meta:
-                continue
+                return None
         
         base_url = m_url.rsplit("manifest.json", 1)[0] if "manifest.json" in m_url else m_url
         if not base_url.endswith("/"): base_url += "/"
@@ -386,16 +388,16 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
             
             true_id = cm.get("imdb_id") or imdb_id
             if str(true_id).startswith("tmdb:") or str(true_id).startswith("ctmdb."):
-                title = cm.get("name")
-                if title:
+                m_title = cm.get("name")
+                if m_title:
                     try:
                         import urllib.parse
-                        search_url = f"https://v3-cinemeta.strem.io/catalog/{c_type}/top/search={urllib.parse.quote(title)}.json"
+                        search_url = f"https://v3-cinemeta.strem.io/catalog/{c_type}/top/search={urllib.parse.quote(m_title)}.json"
                         search_data = _get_cached_request(search_url, max_age_hours=168)
                         if search_data and "metas" in search_data:
                             for m in search_data["metas"]:
                                 m_id = m.get("imdb_id") or m.get("id", "")
-                                if str(m_id).startswith("tt") and str(m.get("name", "")).lower() == str(title).lower():
+                                if str(m_id).startswith("tt") and str(m.get("name", "")).lower() == str(m_title).lower():
                                     if str(m.get("releaseInfo", "")).split("-")[0] == str(cm.get("releaseInfo", "")).split("-")[0]:
                                         true_id = m_id
                                         break
@@ -418,6 +420,20 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 "trailer": cm.get("trailers", [{"source": ""}])[0].get("source") if cm.get("trailers") else None,
                 "videos": videos
             }
+            
+        return None
+
+    import concurrent.futures
+    addons = database.get_addons()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(addons), 30) if addons else 1) as executor:
+        future_to_addon = {executor.submit(fetch_addon_meta, addon): addon for addon in addons}
+        try:
+            for future in concurrent.futures.as_completed(future_to_addon, timeout=15):
+                res = future.result()
+                if res:
+                    return res
+        except concurrent.futures.TimeoutError:
+            pass
             
     return {}
 
