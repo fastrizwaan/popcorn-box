@@ -293,8 +293,12 @@ class MovieDetailsPage(Gtk.Overlay):
         title_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         title_hbox.set_valign(Gtk.Align.CENTER)
         
-        self.title_label = Gtk.Label(label="███████████████████████")
-        self.title_label.set_css_classes(['title-1', 'skeleton'])
+        title_str = self.movie_stub.get("title", "")
+        self.title_label = Gtk.Label(label=title_str if title_str else "███████████████████████")
+        if not title_str:
+            self.title_label.set_css_classes(['title-1', 'skeleton'])
+        else:
+            self.title_label.set_css_classes(['title-1'])
         self.title_label.set_halign(Gtk.Align.START)
         self.title_label.set_wrap(True)
         title_hbox.append(self.title_label)
@@ -316,10 +320,14 @@ class MovieDetailsPage(Gtk.Overlay):
         meta_hbox = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
         meta_hbox.set_valign(Gtk.Align.CENTER)
         
-        self.meta_label = Gtk.Label(label="██████████████████")
+        year_str = self.movie_stub.get("year", "")
+        self.meta_label = Gtk.Label(label=year_str if year_str else "██████████████████")
         self.meta_label.set_halign(Gtk.Align.START)
         self.meta_label.set_wrap(True)
-        self.meta_label.set_css_classes(['dim-label', 'skeleton'])
+        if not year_str:
+            self.meta_label.set_css_classes(['dim-label', 'skeleton'])
+        else:
+            self.meta_label.set_css_classes(['dim-label'])
         meta_hbox.append(self.meta_label)
         
         self.imdb_btn = Gtk.Button(label="IMDb 0.0")
