@@ -31,4 +31,8 @@ chmod +x install.sh
 ./install.sh
 ```
 
+#### Create flatpak-bundle (.flatpak file)
+```
+flatpak build-bundle ~/.local/share/flatpak/repo io.github.fastrizwaan.PopcornBox.flatpak io.github.fastrizwaan.PopcornBox
+```
 Licensed under the **GPL-3.0-or-later** license. See the `COPYING` file for details.
