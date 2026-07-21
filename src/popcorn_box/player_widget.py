@@ -3,6 +3,9 @@ import ctypes
 import os
 from gi.repository import Gdk, Gio, GLib, Gtk
 
+gi.require_version("GdkX11", "4.0")
+gi.require_version("GdkWayland", "4.0")
+from gi.repository import GdkX11, GdkWayland
 try:
     import mpv
     HAS_MPV = True
@@ -19,6 +22,33 @@ GL_FRAMEBUFFER_BINDING = 0x8CA6
 libgl = ctypes.CDLL("libGL.so.1")
 glGetIntegerv = libgl.glGetIntegerv
 glGetIntegerv.argtypes = [ctypes.c_uint, ctypes.POINTER(ctypes.c_int)]
+
+gtk_dll = ctypes.CDLL("libgtk-4.so.1")
+
+def get_display_param():
+    param = {}
+    display = Gdk.Display.get_default()
+    if not display: return param
+    
+    def get_pointer(disp):
+        ctypes.pythonapi.PyCapsule_GetPointer.restype = ctypes.c_void_p
+        ctypes.pythonapi.PyCapsule_GetPointer.argtypes = (ctypes.py_object,)
+        return ctypes.pythonapi.PyCapsule_GetPointer(disp.__gpointer__, None)
+        
+    try:
+        if isinstance(display, GdkWayland.WaylandDisplay):
+            gtk_dll.gdk_wayland_display_get_wl_display.restype = ctypes.c_void_p
+            gtk_dll.gdk_wayland_display_get_wl_display.argtypes = [ctypes.c_void_p]
+            ptr = gtk_dll.gdk_wayland_display_get_wl_display(get_pointer(display))
+            if ptr: param["wl_display"] = ptr
+        elif isinstance(display, GdkX11.X11Display):
+            gtk_dll.gdk_x11_display_get_xdisplay.restype = ctypes.c_void_p
+            gtk_dll.gdk_x11_display_get_xdisplay.argtypes = [ctypes.c_void_p]
+            ptr = gtk_dll.gdk_x11_display_get_xdisplay(get_pointer(display))
+            if ptr: param["x11_display"] = ptr
+    except Exception as e:
+        print(f"Error getting display param: {e}")
+    return param
 
 # Map GDK keyvals to MPV key names
 _GDK_TO_MPV = {
@@ -140,7 +170,7 @@ class PlayerWidget(Gtk.Box):
             ytdl=True,
             ytdl_raw_options="yes-playlist=",
             loglevel="warn",
-            hwdec="no",
+            hwdec="auto",
             slang="en,eng,English",
             alang="en,eng,English",
             subs_fallback="yes",
@@ -204,9 +234,13 @@ class PlayerWidget(Gtk.Box):
         proc_addr_fn = mpv.MpvGlGetProcAddressFn(
             lambda _inst, name: egl_get_proc_address(name)
         )
+        
+        display_param = get_display_param()
+        
         self.mpv_ctx = mpv.MpvRenderContext(
             self.mpv, "opengl",
             opengl_init_params={"get_proc_address": proc_addr_fn},
+            **display_param
         )
         self.mpv_ctx.update_cb = lambda: GLib.idle_add(
             self.gl_area.queue_render
