@@ -140,7 +140,7 @@ class PlayerWidget(Gtk.Box):
             ytdl=True,
             ytdl_raw_options="yes-playlist=",
             loglevel="warn",
-            hwdec="auto",
+            hwdec="no",
             slang="en,eng,English",
             alang="en,eng,English",
             subs_fallback="yes",
