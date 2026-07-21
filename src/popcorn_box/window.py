@@ -2515,7 +2515,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             application_name="Popcorn Box",
             application_icon="io.github.fastrizwaan.PopcornBox",
             developer_name="Mohammed Asif Ali Rizvan",
-            version="1.0",
+            version="1.1",
             issue_url="https://github.com/fastrizwaan/PopcornBox/issues",
             website="https://github.com/fastrizwaan/PopcornBox",
             copyright="© 2024 Mohammed Asif Ali Rizvan",
