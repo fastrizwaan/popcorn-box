@@ -2510,6 +2510,19 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
 
         _install_window_drag(self)
         
+        # Globally inhibit screensaver while the app is running
+        app = Gtk.Application.get_default()
+        if app:
+            try:
+                self._global_inhibit_cookie = app.inhibit(
+                    self,
+                    Gtk.ApplicationInhibitFlags.IDLE,
+                    "PopcornBox is running"
+                )
+                print(f"[Inhibit] Global GTK inhibit succeeded, cookie={self._global_inhibit_cookie}")
+            except Exception as e:
+                print(f"[Inhibit] Global GTK inhibit failed: {e}")
+        
     def show_about(self, action, param):
         about = Adw.AboutWindow(
             application_name="Popcorn Box",
