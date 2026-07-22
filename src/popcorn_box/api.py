@@ -253,7 +253,23 @@ def fetch_items(media_type="movie", query="", genre="", catalog_id="top", catalo
 
     return []
 
-def fetch_movie_details(imdb_id, media_type="movie", title=None):
+def is_valid_meta(res):
+    if not res or not isinstance(res, dict):
+        return False
+    title = str(res.get("title", "")).strip()
+    if not title:
+        return False
+    lower_title = title.lower()
+    if "error getting meta" in lower_title or lower_title.startswith("error ") or lower_title == "failed to load details":
+        return False
+    return True
+
+def fetch_movie_details(imdb_id, media_type="movie", title=None, use_cache=True):
+    if use_cache and imdb_id:
+        cached = database.get_cached_metadata(imdb_id)
+        if cached and is_valid_meta(cached):
+            return cached
+
     c_type = "series" if media_type in ["series", "anime"] else media_type
     
     if media_type == "tv":
@@ -262,7 +278,7 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 channels_data = _get_cached_request("https://iptv-org.github.io/api/channels.json", max_age_hours=24)
                 ch = next((c for c in channels_data if c.get("id") == imdb_id), None) if channels_data else None
                 if ch:
-                    return {
+                    res = {
                         "id": ch.get("id"),
                         "title": ch.get("name"),
                         "year": "",
@@ -275,6 +291,8 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                         "trailer": None,
                         "videos": []
                     }
+                    database.save_cached_metadata(imdb_id, media_type, res)
+                    return res
                     
     is_tmdb = str(imdb_id).startswith("tmdb:") or str(imdb_id).startswith("ctmdb.")
     if is_tmdb:
@@ -323,6 +341,10 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 
         if resolved_id:
             imdb_id = resolved_id
+            if use_cache:
+                cached = database.get_cached_metadata(imdb_id)
+                if cached and is_valid_meta(cached):
+                    return cached
 
 
     def fetch_addon_meta(addon):
@@ -377,6 +399,10 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
         
         if data and data.get("meta"):
             cm = data["meta"]
+            t_val = cm.get("name", "")
+            if not t_val or "error getting meta" in t_val.lower() or t_val.lower().startswith("error"):
+                return None
+
             videos = []
             for v in cm.get("videos", []):
                 videos.append({
@@ -407,7 +433,7 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                     except Exception:
                         pass
                         
-            return {
+            res_dict = {
                 "id": true_id,
                 "title": cm.get("name", ""),
                 "year": str(cm.get("releaseInfo", "")).split("-")[0] if cm.get("releaseInfo") else "",
@@ -420,21 +446,51 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None):
                 "trailer": cm.get("trailers", [{"source": ""}])[0].get("source") if cm.get("trailers") else None,
                 "videos": videos
             }
+            return res_dict
             
         return None
 
-    import concurrent.futures
     addons = database.get_addons()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(addons), 30) if addons else 1) as executor:
-        future_to_addon = {executor.submit(fetch_addon_meta, addon): addon for addon in addons}
-        try:
-            for future in concurrent.futures.as_completed(future_to_addon, timeout=15):
-                res = future.result()
-                if res:
-                    return res
-        except concurrent.futures.TimeoutError:
-            pass
-            
+    cinemeta_addon = next((a for a in addons if a.get("id") == "cinemeta" or "cinemeta" in a.get("manifest_url", "").lower()), None)
+    if cinemeta_addon:
+        cinemeta_res = fetch_addon_meta(cinemeta_addon)
+        if cinemeta_res and is_valid_meta(cinemeta_res):
+            database.save_cached_metadata(imdb_id, media_type, cinemeta_res)
+            if cinemeta_res.get("id") and cinemeta_res.get("id") != imdb_id:
+                database.save_cached_metadata(cinemeta_res.get("id"), media_type, cinemeta_res)
+            return cinemeta_res
+
+    other_addons = [a for a in addons if a != cinemeta_addon]
+    if other_addons:
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(other_addons), 30)) as executor:
+            future_to_addon = {executor.submit(fetch_addon_meta, addon): addon for addon in other_addons}
+            try:
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=15):
+                    res = future.result()
+                    if res and is_valid_meta(res):
+                        database.save_cached_metadata(imdb_id, media_type, res)
+                        if res.get("id") and res.get("id") != imdb_id:
+                            database.save_cached_metadata(res.get("id"), media_type, res)
+                        return res
+            except concurrent.futures.TimeoutError:
+                pass
+
+    if title and title != "Loading...":
+        return {
+            "id": imdb_id,
+            "title": title,
+            "year": "",
+            "medium_cover_image": "",
+            "background": "",
+            "description": "Synopsis temporarily unavailable.",
+            "runtime": "",
+            "genre": "",
+            "imdbRating": "",
+            "trailer": None,
+            "videos": []
+        }
+
     return {}
 
 def find_episode_file_index(files, season, episode):
@@ -481,124 +537,14 @@ def find_episode_file_index(files, season, episode):
         
     return None
 
-def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
-    if not imdb_id:
-        return []
-        
-    actual_media = media_type if media_type == "tv" else ("series" if media_type in ["series", "anime"] else media_type)
-    
-    addons = [a for a in database.get_addons() if a.get("enabled", True)]
-    if not addons:
-        return []
-        
-    stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
-    
-    def fetch_from_addon(addon):
-        resources = addon.get("resources")
-        manifest_url = addon.get("manifest_url", "")
-        addon_types = addon.get("types")
-        addon_prefixes = addon.get("idPrefixes")
-        
-        if addon.get("id") == "local.iptv-org":
-            streams_data = _get_cached_request("https://iptv-org.github.io/api/streams.json", max_age_hours=24)
-            strms = [s for s in streams_data if s.get("channel") == imdb_id] if streams_data else []
-            valid_strms = []
-            for s in strms:
-                height = s.get("height", "")
-                res_str = f"{height}p" if height else "Live"
-                valid_strms.append({
-                    "url": s.get("url"),
-                    "name": "IPTV-Org",
-                    "title": f"Resolution: {res_str}",
-                    "behaviorHints": {"filename": "live.m3u8"}
-                })
-            return addon.get("name", "Unknown"), valid_strms
+def get_stream_cache_key(imdb_id, media_type="movie", season=None, episode=None):
+    if season is not None and episode is not None:
+        return f"{imdb_id}:S{season}:E{episode}"
+    return f"{imdb_id}:{media_type}"
 
-        # If resources/types not in DB, fetch manifest and cache it
-        if (resources is None or addon_types is None or "idPrefixes" not in addon) and manifest_url:
-            try:
-                manifest_data = _get_cached_request(manifest_url, max_age_hours=168)
-                if manifest_data:
-                    resources = manifest_data.get("resources", [])
-                    addon["resources"] = resources
-                    addon_types = manifest_data.get("types", [])
-                    addon["types"] = addon_types
-                    addon_prefixes = manifest_data.get("idPrefixes")
-                    addon["idPrefixes"] = addon_prefixes
-            except Exception:
-                pass
-                
-        # Skip if addon explicitly doesn't support this media type
-        if addon_types is not None and actual_media not in addon_types:
-            return addon.get("name", "Unknown"), []
-            
-        # Skip if addon explicitly doesn't support this ID prefix
-        if addon_prefixes is not None:
-            if not any(str(imdb_id).startswith(p) for p in addon_prefixes):
-                return addon.get("name", "Unknown"), []
-                
-        # If we know the resources, verify it supports streams
-        if resources is not None:
-            has_stream = False
-            for r in resources:
-                if isinstance(r, str) and r == "stream":
-                    has_stream = True
-                elif isinstance(r, dict) and r.get("name") == "stream":
-                    has_stream = True
-            if not has_stream:
-                return addon.get("name", "Unknown"), []
-                
-        if "manifest.json" in manifest_url:
-            base_url = manifest_url.rsplit('manifest.json', 1)[0]
-        else:
-            base_url = manifest_url
-        if not base_url.endswith('/'):
-            base_url += '/'
-            
-        if actual_media == "series" and season is not None and episode is not None:
-            url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
-        else:
-            url = f"{base_url}stream/{actual_media}/{imdb_id}.json"
-            
-        try:
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
-            with urllib.request.urlopen(req, timeout=10) as response:
-                data = json.loads(response.read().decode('utf-8'))
-            if isinstance(data, dict):
-                return addon.get("name", "Unknown"), data.get("streams", [])
-            elif isinstance(data, list):
-                return addon.get("name", "Unknown"), data
-            return addon.get("name", "Unknown"), []
-        except urllib.error.HTTPError as e:
-            print(f"HTTP Error {e.code} fetching from addon {addon.get('name')}")
-            e.close()
-            return addon.get("name", "Unknown"), []
-        except Exception as e:
-            print(f"Error fetching from addon {addon.get('name')}: {e}")
-            return addon.get("name", "Unknown"), []
-            
-    all_streams = []
-    num_workers = min(len(stremio_addons), 30)
-    if num_workers > 0:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
-            future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
-                
-            try:
-                for future in concurrent.futures.as_completed(future_to_addon, timeout=10):
-                    try:
-                        addon_name, streams = future.result()
-                        if streams:
-                            for s in streams:
-                                s["addon_name"] = addon_name
-                                all_streams.append(s)
-                    except Exception as e:
-                        print(f"Error in addon future: {e}")
-            except concurrent.futures.TimeoutError:
-                print("Timeout fetching streams from some addons")
-            
+def process_raw_streams(all_streams):
     if not all_streams:
         return []
-        
     import re
     valid_streams = []
     seen_hashes = set()
@@ -685,6 +631,256 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None):
     
     valid_streams.sort(key=lambda x: (x["q_val"], x["seeders"]), reverse=True)
     return valid_streams
+
+def get_torrents(imdb_id, media_type="movie", season=None, episode=None, use_cache=True):
+    if not imdb_id:
+        return []
+        
+    cache_key = get_stream_cache_key(imdb_id, media_type, season, episode)
+    if use_cache:
+        cached = database.get_cached_streams(cache_key, max_age_hours=24)
+        if cached is not None:
+            return cached
+
+    actual_media = media_type if media_type == "tv" else ("series" if media_type in ["series", "anime"] else media_type)
+    
+    addons = [a for a in database.get_addons() if a.get("enabled", True)]
+    if not addons:
+        return []
+        
+    stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
+    
+    def fetch_from_addon(addon):
+        resources = addon.get("resources")
+        manifest_url = addon.get("manifest_url", "")
+        addon_types = addon.get("types")
+        addon_prefixes = addon.get("idPrefixes")
+        
+        if addon.get("id") == "local.iptv-org":
+            streams_data = _get_cached_request("https://iptv-org.github.io/api/streams.json", max_age_hours=24)
+            strms = [s for s in streams_data if s.get("channel") == imdb_id] if streams_data else []
+            valid_strms = []
+            for s in strms:
+                height = s.get("height", "")
+                res_str = f"{height}p" if height else "Live"
+                valid_strms.append({
+                    "url": s.get("url"),
+                    "name": "IPTV-Org",
+                    "title": f"Resolution: {res_str}",
+                    "behaviorHints": {"filename": "live.m3u8"}
+                })
+            return addon.get("name", "Unknown"), valid_strms
+
+        if (resources is None or addon_types is None or "idPrefixes" not in addon) and manifest_url:
+            try:
+                manifest_data = _get_cached_request(manifest_url, max_age_hours=168)
+                if manifest_data:
+                    resources = manifest_data.get("resources", [])
+                    addon["resources"] = resources
+                    addon_types = manifest_data.get("types", [])
+                    addon["types"] = addon_types
+                    addon_prefixes = manifest_data.get("idPrefixes")
+                    addon["idPrefixes"] = addon_prefixes
+            except Exception:
+                pass
+                
+        if addon_types is not None and actual_media not in addon_types:
+            return addon.get("name", "Unknown"), []
+            
+        if addon_prefixes is not None:
+            if not any(str(imdb_id).startswith(p) for p in addon_prefixes):
+                return addon.get("name", "Unknown"), []
+                
+        if resources is not None:
+            has_stream = False
+            for r in resources:
+                if isinstance(r, str) and r == "stream":
+                    has_stream = True
+                elif isinstance(r, dict) and r.get("name") == "stream":
+                    has_stream = True
+            if not has_stream:
+                return addon.get("name", "Unknown"), []
+                
+        if "manifest.json" in manifest_url:
+            base_url = manifest_url.rsplit('manifest.json', 1)[0]
+        else:
+            base_url = manifest_url
+        if not base_url.endswith('/'):
+            base_url += '/'
+            
+        if actual_media == "series" and season is not None and episode is not None:
+            url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
+        else:
+            url = f"{base_url}stream/{actual_media}/{imdb_id}.json"
+            
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+            if isinstance(data, dict):
+                return addon.get("name", "Unknown"), data.get("streams", [])
+            elif isinstance(data, list):
+                return addon.get("name", "Unknown"), data
+            return addon.get("name", "Unknown"), []
+        except urllib.error.HTTPError as e:
+            print(f"HTTP Error {e.code} fetching from addon {addon.get('name')}")
+            e.close()
+            return addon.get("name", "Unknown"), []
+        except Exception as e:
+            print(f"Error fetching from addon {addon.get('name')}: {e}")
+            return addon.get("name", "Unknown"), []
+            
+    all_streams = []
+    num_workers = min(len(stremio_addons), 30)
+    if num_workers > 0:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
+                
+            try:
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=10):
+                    try:
+                        addon_name, streams = future.result()
+                        if streams:
+                            for s in streams:
+                                s["addon_name"] = addon_name
+                                all_streams.append(s)
+                    except Exception as e:
+                        print(f"Error in addon future: {e}")
+            except concurrent.futures.TimeoutError:
+                print("Timeout fetching streams from some addons")
+            
+    valid_streams = process_raw_streams(all_streams)
+    if valid_streams:
+        database.save_cached_streams(cache_key, valid_streams)
+    return valid_streams
+
+def get_torrents_streamed(imdb_id, media_type="movie", season=None, episode=None, callback=None):
+    if not imdb_id:
+        if callback: callback([], is_cached=False, is_complete=True)
+        return []
+
+    cache_key = get_stream_cache_key(imdb_id, media_type, season, episode)
+    cached = database.get_cached_streams(cache_key, max_age_hours=24)
+    if cached and callback:
+        callback(cached, is_cached=True, is_complete=False)
+
+    actual_media = media_type if media_type == "tv" else ("series" if media_type in ["series", "anime"] else media_type)
+    addons = [a for a in database.get_addons() if a.get("enabled", True)]
+    if not addons:
+        if callback: callback(cached or [], is_cached=False, is_complete=True)
+        return cached or []
+        
+    stremio_addons = [a for a in addons if not a.get("manifest_url", "").startswith("builtin://")]
+
+    def fetch_from_addon(addon):
+        resources = addon.get("resources")
+        manifest_url = addon.get("manifest_url", "")
+        addon_types = addon.get("types")
+        addon_prefixes = addon.get("idPrefixes")
+        
+        if addon.get("id") == "local.iptv-org":
+            streams_data = _get_cached_request("https://iptv-org.github.io/api/streams.json", max_age_hours=24)
+            strms = [s for s in streams_data if s.get("channel") == imdb_id] if streams_data else []
+            valid_strms = []
+            for s in strms:
+                height = s.get("height", "")
+                res_str = f"{height}p" if height else "Live"
+                valid_strms.append({
+                    "url": s.get("url"),
+                    "name": "IPTV-Org",
+                    "title": f"Resolution: {res_str}",
+                    "behaviorHints": {"filename": "live.m3u8"}
+                })
+            return addon.get("name", "Unknown"), valid_strms
+
+        if (resources is None or addon_types is None or "idPrefixes" not in addon) and manifest_url:
+            try:
+                manifest_data = _get_cached_request(manifest_url, max_age_hours=168)
+                if manifest_data:
+                    resources = manifest_data.get("resources", [])
+                    addon["resources"] = resources
+                    addon_types = manifest_data.get("types", [])
+                    addon["types"] = addon_types
+                    addon_prefixes = manifest_data.get("idPrefixes")
+                    addon["idPrefixes"] = addon_prefixes
+            except Exception:
+                pass
+                
+        if addon_types is not None and actual_media not in addon_types:
+            return addon.get("name", "Unknown"), []
+            
+        if addon_prefixes is not None:
+            if not any(str(imdb_id).startswith(p) for p in addon_prefixes):
+                return addon.get("name", "Unknown"), []
+                
+        if resources is not None:
+            has_stream = False
+            for r in resources:
+                if isinstance(r, str) and r == "stream":
+                    has_stream = True
+                elif isinstance(r, dict) and r.get("name") == "stream":
+                    has_stream = True
+            if not has_stream:
+                return addon.get("name", "Unknown"), []
+                
+        if "manifest.json" in manifest_url:
+            base_url = manifest_url.rsplit('manifest.json', 1)[0]
+        else:
+            base_url = manifest_url
+        if not base_url.endswith('/'):
+            base_url += '/'
+            
+        if actual_media == "series" and season is not None and episode is not None:
+            url = f"{base_url}stream/series/{imdb_id}:{season}:{episode}.json"
+        else:
+            url = f"{base_url}stream/{actual_media}/{imdb_id}.json"
+            
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode('utf-8'))
+            if isinstance(data, dict):
+                return addon.get("name", "Unknown"), data.get("streams", [])
+            elif isinstance(data, list):
+                return addon.get("name", "Unknown"), data
+            return addon.get("name", "Unknown"), []
+        except urllib.error.HTTPError as e:
+            print(f"HTTP Error {e.code} fetching from addon {addon.get('name')}")
+            e.close()
+            return addon.get("name", "Unknown"), []
+        except Exception as e:
+            print(f"Error fetching from addon {addon.get('name')}: {e}")
+            return addon.get("name", "Unknown"), []
+
+    all_raw_streams = []
+    num_workers = min(len(stremio_addons), 30) if stremio_addons else 1
+    if num_workers > 0 and stremio_addons:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
+            future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
+            try:
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=10):
+                    try:
+                        addon_name, streams = future.result()
+                        if streams:
+                            for s in streams:
+                                s["addon_name"] = addon_name
+                                all_raw_streams.append(s)
+                            if callback:
+                                current_parsed = process_raw_streams(all_raw_streams)
+                                callback(current_parsed, is_cached=False, is_complete=False)
+                    except Exception as e:
+                        print(f"Error in addon future: {e}")
+            except concurrent.futures.TimeoutError:
+                print("Timeout fetching streams from some addons")
+
+    final_streams = process_raw_streams(all_raw_streams)
+    if final_streams:
+        database.save_cached_streams(cache_key, final_streams)
+
+    if callback:
+        callback(final_streams or cached or [], is_cached=False, is_complete=True)
+
+    return final_streams or cached or []
 
 def get_subtitles(imdb_id, media_type="movie", season=None, episode=None):
     if not imdb_id:

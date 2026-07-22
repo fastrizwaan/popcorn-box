@@ -89,16 +89,16 @@ def exit_player():
     with _engines_lock:
         for info_hash, engine in _engines.items():
             try:
-                # Use a short save_timeout so each stop() is fast
-                t = threading.Thread(target=engine.stop, kwargs={"save_timeout": 2}, daemon=True)
+                # Use a fast save_timeout so each stop() completes in ~0.1s
+                t = threading.Thread(target=engine.stop, kwargs={"save_timeout": 0.5}, daemon=True)
                 t.start()
                 threads.append(t)
             except Exception:
                 pass
         _engines.clear()
 
-    # Wait at most 3 s total for all stop threads to finish
-    deadline = time.time() + 3.0
+    # Wait at most 0.8 s total for all stop threads to finish
+    deadline = time.time() + 0.8
     for t in threads:
         remaining = max(0.0, deadline - time.time())
         t.join(timeout=remaining)

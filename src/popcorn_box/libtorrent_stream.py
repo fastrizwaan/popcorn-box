@@ -956,7 +956,7 @@ class TorrentStreamEngine:
             time.sleep(0.05)
         return False
 
-    def _save_resume_data(self, timeout=2):
+    def _save_resume_data(self, timeout=0.5):
         if not self.handle or not self.lt:
             return
         try:
@@ -969,7 +969,7 @@ class TorrentStreamEngine:
         while time.time() < end_time:
             alerts = []
             try:
-                alert = self.session.wait_for_alert(500)
+                alert = self.session.wait_for_alert(100)
                 if alert is not None:
                     alerts = self.session.pop_alerts()
             except Exception:
@@ -984,7 +984,7 @@ class TorrentStreamEngine:
                     return
                 if item.__class__.__name__ == "save_resume_data_failed_alert":
                     return
-            time.sleep(0.05)
+            time.sleep(0.02)
 
     def _write_resume_alert(self, alert):
         try:

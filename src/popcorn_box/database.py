@@ -1,9 +1,12 @@
 import json
 import os
 import threading
+import sqlite3
+import time
 from pathlib import Path
 
 _db_lock = threading.RLock()
+_cache_db_lock = threading.RLock()
 _db_corrupted = False
 
 import os
@@ -320,4 +323,122 @@ def set_addon_enabled(addon_id, enabled):
         if a.get("id") == addon_id:
             a["enabled"] = enabled
     _write_db(db)
+
+# --- SQLite Metadata & Stream Cache ---
+
+def _get_cache_db():
+    _ensure_db()
+    db_path = CONFIG_DIR / "cache.db"
+    conn = sqlite3.connect(str(db_path), check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL;")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS metadata_cache (
+            id TEXT PRIMARY KEY,
+            media_type TEXT,
+            data TEXT,
+            updated_at REAL
+        )
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS stream_cache (
+            cache_key TEXT PRIMARY KEY,
+            data TEXT,
+            updated_at REAL
+        )
+    """)
+    conn.commit()
+    return conn
+
+def get_cached_metadata(item_id):
+    if not item_id:
+        return None
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT data FROM metadata_cache WHERE id = ?", (str(item_id),))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                return json.loads(row[0])
+    except Exception as e:
+        print(f"Error reading metadata cache: {e}")
+    return None
+
+def save_cached_metadata(item_id, media_type, details):
+    if not item_id or not details:
+        return
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO metadata_cache (id, media_type, data, updated_at) VALUES (?, ?, ?, ?)",
+                (str(item_id), str(media_type or "movie"), json.dumps(details), time.time())
+            )
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Error saving metadata cache: {e}")
+
+def get_cached_streams(cache_key, max_age_hours=24):
+    if not cache_key:
+        return None
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute("SELECT data, updated_at FROM stream_cache WHERE cache_key = ?", (str(cache_key),))
+            row = cursor.fetchone()
+            conn.close()
+            if row and row[0]:
+                updated_at = row[1]
+                if (time.time() - updated_at) / 3600 < max_age_hours:
+                    return json.loads(row[0])
+    except Exception as e:
+        print(f"Error reading stream cache: {e}")
+    return None
+
+def save_cached_streams(cache_key, streams):
+    if not cache_key or streams is None:
+        return
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute(
+                "INSERT OR REPLACE INTO stream_cache (cache_key, data, updated_at) VALUES (?, ?, ?)",
+                (str(cache_key), json.dumps(streams), time.time())
+            )
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Error saving stream cache: {e}")
+
+def delete_cached_metadata(item_id):
+    if not item_id:
+        return
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM metadata_cache WHERE id = ?", (str(item_id),))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Error deleting cached metadata: {e}")
+
+def delete_cached_streams(cache_key):
+    if not cache_key:
+        return
+    try:
+        with _cache_db_lock:
+            conn = _get_cache_db()
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM stream_cache WHERE cache_key = ?", (str(cache_key),))
+            conn.commit()
+            conn.close()
+    except Exception as e:
+        print(f"Error deleting cached streams: {e}")
+
 

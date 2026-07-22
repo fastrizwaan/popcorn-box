@@ -249,9 +249,17 @@ class MovieDetailsPage(Gtk.Overlay):
         header_box.append(back_btn)
         
         self.reload_btn = Gtk.Button(icon_name="view-refresh-symbolic")
-        self.reload_btn.set_tooltip_text("Reload Streams")
+        self.reload_btn.set_tooltip_text("Reload Details & Streams")
         self.reload_btn.set_css_classes(['circular', 'flat'])
-        self.reload_btn.connect("clicked", lambda btn: self.fetch_torrents_async())
+        def on_reload(btn):
+            item_id = self.movie_stub.get("id")
+            database.delete_cached_metadata(item_id)
+            cache_key = api.get_stream_cache_key(item_id, self.media_type, getattr(self, 'selected_season', None), getattr(self, 'selected_episode', None))
+            database.delete_cached_streams(cache_key)
+            self._ui_built = False
+            self.load_details_async(force_refresh=True)
+            self.fetch_torrents_async()
+        self.reload_btn.connect("clicked", on_reload)
         header_box.append(self.reload_btn)
         
         self.main_box.append(header_box)
@@ -511,13 +519,19 @@ class MovieDetailsPage(Gtk.Overlay):
         self.top_hbox.append(self.info_vbox)
         self.content_box.append(self.top_hbox)
         
-        self.load_details_async()
+        cached_details = database.get_cached_metadata(self.movie_stub.get("id"))
+        if cached_details:
+            self.build_ui(cached_details)
+            self.load_details_async(force_refresh=False)
+        else:
+            self.load_details_async(force_refresh=True)
 
 
-    def load_details_async(self):
+    def load_details_async(self, force_refresh=False):
         def fetch():
-            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type, title=self.movie_stub.get("title"))
-            GLib.idle_add(self.build_ui, details)
+            details = api.fetch_movie_details(self.movie_stub.get("id"), self.media_type, title=self.movie_stub.get("title"), use_cache=not force_refresh)
+            if details:
+                GLib.idle_add(self.build_ui, details)
         threading.Thread(target=fetch, daemon=True).start()
         
     def toggle_favorite(self, details):
@@ -552,10 +566,24 @@ class MovieDetailsPage(Gtk.Overlay):
 
     def build_ui(self, details, torrents=None):
         if not details:
-            self.title_label.set_text("Failed to load details.")
-            self.title_label.remove_css_class('skeleton')
+            if not getattr(self, '_ui_built', False):
+                self.title_label.set_text("Failed to load details.")
+                self.title_label.remove_css_class('skeleton')
             return
-            
+
+        if getattr(self, '_ui_built', False):
+            if details.get("title"):
+                self.title_label.set_text(details.get("title", ""))
+            if details.get("background"):
+                load_image_into_picture(details.get("background"), self.backdrop_pic)
+            meta_str = f"{details.get('year', '')} • {details.get('runtime', '')} • {details.get('genre', '')} • "
+            self.meta_label.set_text(meta_str)
+            if details.get("description"):
+                self.desc_label.set_text(details.get("description", ""))
+            return
+
+        self._ui_built = True
+
         # Update the local stub ID so that torrent scrapers use the resolved IMDB ID instead of the TMDB ID
         if details.get("id") and self.movie_stub.get("id") != details.get("id"):
             self.movie_stub["id"] = details.get("id")
@@ -830,10 +858,37 @@ class MovieDetailsPage(Gtk.Overlay):
                 self.quality_button_box.remove(child)
         if hasattr(self, 'file_dropdown') and self.file_dropdown:
             self.file_dropdown.set_model(Gtk.StringList.new(["Loading..."]))
+
+        item_id = self.movie_stub.get("id")
+        sel_season = getattr(self, 'selected_season', None)
+        sel_episode = getattr(self, 'selected_episode', None)
         
+        def on_stream_batch(torrents, is_cached=False, is_complete=False):
+            if getattr(self, '_destroyed', False):
+                return
+            if hasattr(self, 'progress_label') and self.progress_label:
+                if is_complete:
+                    if not torrents:
+                        self.progress_label.set_text("No streams available.")
+                    else:
+                        self.progress_label.set_text("")
+                elif is_cached:
+                    self.progress_label.set_text("Loaded cached streams...")
+                else:
+                    self.progress_label.set_text("Finding streams...")
+
+            if torrents:
+                self.torrents = torrents
+                self.update_quality_dropdown()
+
         def fetch():
-            torrents = api.get_torrents(self.movie_stub.get("id"), self.media_type, self.selected_season, self.selected_episode)
-            GLib.idle_add(self.on_torrents_fetched, torrents)
+            api.get_torrents_streamed(
+                item_id,
+                self.media_type,
+                sel_season,
+                sel_episode,
+                callback=lambda t, is_cached=False, is_complete=False: GLib.idle_add(on_stream_batch, t, is_cached, is_complete)
+            )
         threading.Thread(target=fetch, daemon=True).start()
         
     def on_torrents_fetched(self, torrents):
@@ -2536,7 +2591,7 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
             application_name="Popcorn Box",
             application_icon="io.github.fastrizwaan.PopcornBox",
             developer_name="Mohammed Asif Ali Rizvan",
-            version="1.1",
+            version="1.2",
             issue_url="https://github.com/fastrizwaan/PopcornBox/issues",
             website="https://github.com/fastrizwaan/PopcornBox",
             copyright="© 2024 Mohammed Asif Ali Rizvan",
@@ -3298,98 +3353,61 @@ class PopcornBoxWindow(Adw.ApplicationWindow):
         GLib.idle_add(lambda: active_page.scrolled.get_vadjustment().set_value(active_page.saved_scroll_pos) or False)
 
     def on_close_request(self, *args):
-        # Suppress the default close so we can show a progress dialog
+        # Hide window instantly so user gets immediate 0ms response
+        try:
+            self.set_visible(False)
+        except Exception:
+            pass
         self._do_graceful_exit()
-        return True  # prevent immediate destroy
+        return True  # prevent GTK default destroy while background cleanup runs
 
     def _do_graceful_exit(self):
         import os as _os
 
-        # ── Build a minimal "closing" overlay dialog ──────────────────────
-        dialog = Adw.AlertDialog()
-        dialog.set_heading("Closing Popcorn Box")
-        dialog.set_body("Saving progress and stopping torrents…")
-
-        spinner_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
-        spinner_box.set_halign(Gtk.Align.CENTER)
-        spinner_box.set_margin_top(8)
-        spinner_box.set_margin_bottom(4)
-
-        spinner = Gtk.Spinner()
-        spinner.set_size_request(24, 24)
-        spinner.start()
-        spinner_box.append(spinner)
-
-        status_label = Gtk.Label(label="Preparing to close…")
-        status_label.set_css_classes(["dim-label"])
-        spinner_box.append(status_label)
-
-        dialog.set_extra_child(spinner_box)
-        dialog.present(self)
-
-        # ── PHASE 1 (GTK main thread) — instant, thread-safe operations ──
-        # All D-Bus / screensaver uninhibit calls MUST happen here.
-        # Doing them from a background thread is not GTK-thread-safe and
-        # can deadlock the main loop, freezing the spinner.
+        # Stop MPV player widget & D-Bus inhibitors on main thread
         try:
-            status_label.set_text("Stopping player…")
             if hasattr(self, "global_player") and self.global_player:
                 pw = self.global_player.player_widget
                 if pw:
                     try:
-                        pw.stop()   # stops MPV + releases D-Bus screensaver inhibitors
+                        pw.stop()
                     except Exception:
                         pass
-            player.stop_player()  # marks the streaming engine as paused
+            player.stop_player()
         except Exception:
             pass
 
-        # Flush progress and snapshot upload/download stats (fast: in-memory
-        # read + one DB write, no libtorrent blocking)
-        try:
-            from . import database as _db
-            _db.flush_progress()
-            with player._engines_lock:
-                for ih, eng in list(player._engines.items()):
-                    try:
-                        st = eng._status()
-                        ul = getattr(st, "all_time_upload", 0) or 0
-                        dl = getattr(st, "all_time_download", 0) or 0
-                        if ul > 0 or dl > 0:
-                            eng._stored_ul = max(eng._stored_ul, ul)
-                            eng._stored_dl = max(eng._stored_dl, dl)
-                            _db.update_download_stats(ih, ul, dl)
-                    except Exception:
-                        pass
-        except Exception:
-            pass
-
-        status_label.set_text("Saving torrent state…")
-
-        # ── PHASE 2 (background thread) — slow libtorrent I/O ────────────
-        # The GTK main loop is now completely free — the spinner animates.
-        def _shutdown_thread():
+        def _async_cleanup():
             try:
-                player.exit_player()  # saves fast-resume, shuts HTTP servers
+                from . import database as _db
+                _db.flush_progress()
+                with player._engines_lock:
+                    for ih, eng in list(player._engines.items()):
+                        try:
+                            st = eng._status()
+                            ul = getattr(st, "all_time_upload", 0) or 0
+                            dl = getattr(st, "all_time_download", 0) or 0
+                            if ul > 0 or dl > 0:
+                                eng._stored_ul = max(eng._stored_ul, ul)
+                                eng._stored_dl = max(eng._stored_dl, dl)
+                                _db.update_download_stats(ih, ul, dl)
+                        except Exception:
+                            pass
+                player.exit_player()
             except Exception:
                 pass
             finally:
-                GLib.idle_add(_finish)
+                _os._exit(0)
 
-        def _finish():
-            spinner.stop()
-            _os._exit(0)
-            return False
-
-        # Safety net: force-exit after 5 s even if libtorrent hangs
+        # Safety net: force-exit after 1.5s max
         def _force_exit():
             _os._exit(0)
             return False
 
-        GLib.timeout_add(5000, _force_exit)
+        GLib.timeout_add(1500, _force_exit)
 
         import threading
-        threading.Thread(target=_shutdown_thread, daemon=True).start()
+        threading.Thread(target=_async_cleanup, daemon=True).start()
 
 
     def _is_player_visible(self):
