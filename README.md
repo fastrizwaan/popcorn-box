@@ -5,7 +5,7 @@
 A Stremio-compatible native media client built specifically for GNU/Linux using **Python 3**, **GTK4**, and **Libadwaita**.
 
 ### 🛠 Installation & Usage
-Open this flatpak with Gnome Software: [io.github.fastrizwaan.PopcornBox.flatpak](https://github.com/fastrizwaan/popcorn-box/releases/download/1.2/io.github.fastrizwaan.PopcornBox.flatpak)
+Open this flatpak with Gnome Software: [io.github.fastrizwaan.PopcornBox.flatpak](https://github.com/fastrizwaan/popcorn-box/releases/download/1.1/io.github.fastrizwaan.PopcornBox.flatpak)
 
 ### Method 1: Install Flatpak via CLI (Recommended)
 
