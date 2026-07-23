@@ -359,6 +359,15 @@ class MovieDetailsPage(Gtk.Overlay):
         self.desc_label.set_css_classes(['skeleton'])
         self.info_vbox.append(self.desc_label)
         
+        self.cast_label = Gtk.Label(label="Cast: ████████████ ████████████ ████████████")
+        self.cast_label.set_wrap(True)
+        self.cast_label.set_halign(Gtk.Align.START)
+        self.cast_label.set_max_width_chars(80)
+        self.cast_label.set_margin_bottom(16)
+        self.cast_label.set_css_classes(['skeleton', 'dim-label'])
+        self.cast_label.set_visible(False)
+        self.info_vbox.append(self.cast_label)
+        
         # Row 1: Actions (Fav, Seen, Trailer)
         self.row1_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
         self.row1_box.set_margin_top(16)
@@ -633,6 +642,14 @@ class MovieDetailsPage(Gtk.Overlay):
             
         self.desc_label.set_text(details.get("description", ""))
         self.desc_label.remove_css_class('skeleton')
+        
+        cast_str = ", ".join(details.get("cast", []))
+        if cast_str:
+            self.cast_label.set_text(f"Cast: {cast_str}")
+            self.cast_label.remove_css_class('skeleton')
+            self.cast_label.set_visible(True)
+        else:
+            self.cast_label.set_visible(False)
         
         item_id = details.get("id")
         self.detail_fav_btn.set_label("♥ Remove from Favorites" if database.is_favorite(item_id) else "♡ Add to Favorites")

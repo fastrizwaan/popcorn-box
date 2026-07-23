@@ -434,9 +434,18 @@ def play_trailer(youtube_id, progress_callback=None):
     stop_player()
     
     if youtube_id.startswith("http://") or youtube_id.startswith("https://"):
-        url = youtube_id
+        default_url = youtube_id
+        is_youtube = "youtube.com" in youtube_id or "youtu.be" in youtube_id
+        if is_youtube:
+            import re
+            match = re.search(r"(?:v=|/)([0-9A-Za-z_-]{11}).*", youtube_id)
+            if match:
+                youtube_id = match.group(1)
+            else:
+                is_youtube = False
     else:
-        url = f"https://www.youtube.com/watch?v={youtube_id}"
+        default_url = f"https://www.youtube.com/watch?v={youtube_id}"
+        is_youtube = True
     
     def launch():
         try:
@@ -444,7 +453,35 @@ def play_trailer(youtube_id, progress_callback=None):
             from gi.repository import GLib
             if progress_callback:
                 GLib.idle_add(lambda: progress_callback({"status": "Resolving YouTube link..."}))
-                GLib.idle_add(lambda: progress_callback({"status": "Playing Trailer!", "url": url}))
+            
+            resolved_url = default_url
+            if is_youtube:
+                import urllib.request
+                import json
+                instances = [
+                    "https://pipedapi.kavin.rocks",
+                    "https://pipedapi.tokhmi.xyz",
+                    "https://pipedapi.moomoo.me",
+                    "https://pipedapi.adminforge.de"
+                ]
+                for instance in instances:
+                    try:
+                        req = urllib.request.Request(f"{instance}/streams/{youtube_id}", headers={'User-Agent': 'Mozilla/5.0'})
+                        with urllib.request.urlopen(req, timeout=5) as resp:
+                            data = json.loads(resp.read().decode())
+                            streams = data.get("videoStreams", [])
+                            if streams:
+                                mp4_streams = [s for s in streams if s.get("format") == "MPEG_4"]
+                                if mp4_streams:
+                                    resolved_url = mp4_streams[0].get("url")
+                                else:
+                                    resolved_url = streams[0].get("url")
+                                break
+                    except Exception as e:
+                        print(f"Piped API {instance} failed for trailer: {e}")
+
+            if progress_callback:
+                GLib.idle_add(lambda: progress_callback({"status": "Playing Trailer!", "url": resolved_url}))
             
         except Exception as e:
             print(f"Error launching trailer: {e}")

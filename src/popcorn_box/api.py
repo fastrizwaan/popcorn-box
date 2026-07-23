@@ -444,7 +444,8 @@ def fetch_movie_details(imdb_id, media_type="movie", title=None, use_cache=True)
                 "genre": ", ".join(cm.get("genres", [])),
                 "imdbRating": str(cm.get("imdbRating", "")),
                 "trailer": cm.get("trailers", [{"source": ""}])[0].get("source") if cm.get("trailers") else None,
-                "videos": videos
+                "videos": videos,
+                "cast": cm.get("cast", [])
             }
             return res_dict
             
@@ -715,7 +716,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None, use_cac
             
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=15) as response:
                 data = json.loads(response.read().decode('utf-8'))
             if isinstance(data, dict):
                 return addon.get("name", "Unknown"), data.get("streams", [])
@@ -737,7 +738,7 @@ def get_torrents(imdb_id, media_type="movie", season=None, episode=None, use_cac
             future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
                 
             try:
-                for future in concurrent.futures.as_completed(future_to_addon, timeout=10):
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=20):
                     try:
                         addon_name, streams = future.result()
                         if streams:
@@ -837,7 +838,7 @@ def get_torrents_streamed(imdb_id, media_type="movie", season=None, episode=None
             
         try:
             req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'})
-            with urllib.request.urlopen(req, timeout=10) as response:
+            with urllib.request.urlopen(req, timeout=15) as response:
                 data = json.loads(response.read().decode('utf-8'))
             if isinstance(data, dict):
                 return addon.get("name", "Unknown"), data.get("streams", [])
@@ -858,7 +859,7 @@ def get_torrents_streamed(imdb_id, media_type="movie", season=None, episode=None
         with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
             future_to_addon = {executor.submit(fetch_from_addon, addon): addon for addon in stremio_addons}
             try:
-                for future in concurrent.futures.as_completed(future_to_addon, timeout=10):
+                for future in concurrent.futures.as_completed(future_to_addon, timeout=20):
                     try:
                         addon_name, streams = future.result()
                         if streams:
